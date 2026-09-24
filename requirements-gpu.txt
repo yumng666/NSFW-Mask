@@ -1,0 +1,28 @@
+# NSFW Guard Pro（加固版）— NVIDIA GPU 部署依赖（可选）
+#
+# 与原版 requirements-gpu.txt 的区别：
+# 1. 原版装的是 opencv-python（非 headless），在无桌面的 Linux 服务器上
+#    会因为缺少 libGL 而 import 失败。这里同样使用 headless 版本。
+# 2. 原版把 CUDA 索引注释掉了，实际并不会装到指定的 CUDA 构建。
+#    这里把索引写成可选项，请按自己的驱动版本二选一。
+#
+# 用法（三选一）：
+#   pip install -r requirements-gpu.txt
+#   pip install -r requirements-gpu.txt --extra-index-url https://download.pytorch.org/whl/cu121
+#   pip install -r requirements-gpu.txt --extra-index-url https://download.pytorch.org/whl/cu118
+#
+# 注意：本版已经修正了"GPU 实际未生效"的问题 —— 原版 pipeline() 没有传
+# device 参数，即使装了 CUDA 版 torch，分类器仍然跑在 CPU 上。
+
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+python-multipart>=0.0.9
+slowapi>=0.1.9
+
+numpy>=1.26,<3
+pillow>=10.0
+opencv-python-headless>=4.8
+
+nudenet>=3.4.2
+torch>=2.2
+transformers>=4.40

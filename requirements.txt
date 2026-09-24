@@ -1,0 +1,23 @@
+# NSFW Guard Pro（加固版）— CPU 部署依赖
+#
+# 说明：
+# - 原版的 requirements.txt 完全没有锁版本，无法复现构建。
+#   这里给出兼容区间；如需完全可复现，请使用安装后生成的
+#   requirements.lock.txt（由 `pip freeze` 产出）。
+# - torch 装的是 PyPI 上的默认构建。在 Windows 上自带 CPU 版本；
+#   在 Linux 上会拉取 CUDA 版本，若确实需要 CPU 专用构建，请追加
+#   --extra-index-url https://download.pytorch.org/whl/cpu
+# - 没有 aiofiles：本版不使用 aiofiles，同步文件 IO 放在工作线程里执行。
+
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+python-multipart>=0.0.9
+slowapi>=0.1.9
+
+numpy>=1.26,<3
+pillow>=10.0
+opencv-python-headless>=4.8
+
+nudenet>=3.4.2
+torch>=2.2
+transformers>=4.40

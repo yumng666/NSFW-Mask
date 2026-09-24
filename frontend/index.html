@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>NSFW Mask</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="/favicon.ico" sizes="any">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <img class="logo" src="/favicon.svg" alt="">
+    <div>
+      <h1>NSFW Mask</h1>
+      <p class="tagline" data-i18n="app_tagline">本地推理 · 图片不出机器</p>
+    </div>
+  </div>
+  <div class="disclaimer" data-i18n="disclaimer">⚠️ 免责声明：本工具仅辅助打码，无法保证完全精准，遮挡效果需自行判断与复核；因使用本工具所遇到的任何审核问题，作者概不负责。</div>
+  <div class="keybox">
+    <label for="langSelect" data-i18n="lang_label">语言</label>
+    <select id="langSelect" class="lang-select" aria-label="Language">
+      <option value="zh">中文</option>
+      <option value="en">English</option>
+      <option value="ja">日本語</option>
+    </select>
+    <label for="apiKeyInput">API Key</label>
+    <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false"
+           data-i18n-placeholder="key_placeholder" placeholder="粘贴 data/api_key 中的内容">
+    <label class="remember" data-i18n-title="remember_title" title="勾选后密钥会保存在本机浏览器里，下次自动填好">
+      <input type="checkbox" id="rememberKey">
+      <span data-i18n="remember">记住</span>
+    </label>
+    <button id="keyFillBtn" type="button" class="ghost-btn" data-i18n-title="key_fill_title" data-i18n="key_fill" title="从 data/api_key 读出密钥自动填入">一键填写</button>
+    <button id="keySaveBtn" type="button" class="ghost-btn" data-i18n="save">保存</button>
+  </div>
+</header>
+
+<main class="layout">
+
+  <section class="card controls" aria-label="处理选项">
+    <h2 data-i18n="controls_title">处理选项</h2>
+
+    <fieldset class="field">
+      <legend data-i18n="censor_mode">打码方式</legend>
+      <div class="radio-row">
+        <label class="radio"><input type="radio" name="mode" value="blur" checked><span data-i18n="mode_blur">高斯模糊</span></label>
+        <label class="radio"><input type="radio" name="mode" value="pixel"><span data-i18n="mode_pixel">马赛克</span></label>
+        <label class="radio"><input type="radio" name="mode" value="solid"><span data-i18n="mode_solid">纯色填充</span></label>
+      </div>
+    </fieldset>
+
+    <div class="field hidden" id="colorPickerContainer">
+      <label for="solidColor" data-i18n="fill_color">填充颜色</label>
+      <input id="solidColor" type="color" value="#000000">
+    </div>
+
+    <div class="field">
+      <label for="ruleset" data-i18n="ruleset">打码规则</label>
+      <select id="ruleset">
+        <option value="pixiv" selected data-i18n="ruleset_pixiv">pixiv 投稿规范</option>
+        <option value="strict" data-i18n="ruleset_strict">严格（全部敏感部位）</option>
+      </select>
+      <p class="hint">
+        <span data-i18n="ruleset_hint">pixiv 规范：只遮性器官与肛门（阴蒂、阴部、阴茎、肛门），臀部、胸部不打，便于过审。</span>
+        <strong data-i18n="ruleset_hint_strong">模型分不清"掰开/没掰开"，也分不出睾丸，这类误差请在手动涂抹里修正。</strong>
+      </p>
+    </div>
+
+    <div class="field">
+      <label for="sensitivity" data-i18n="sensitivity">检测灵敏度</label>
+      <select id="sensitivity">
+        <option value="max" selected data-i18n="sens_max">最高召回 · 模型看到的都遮（推荐）</option>
+        <option value="aggressive" data-i18n="sens_aggressive">高召回</option>
+        <option value="balanced" data-i18n="sens_balanced">标准 · 门槛 0.30，难姿势容易漏</option>
+        <option value="strict" data-i18n="sens_strict">严格 · 少误杀，可能漏</option>
+      </select>
+      <p class="hint">
+        <span data-i18n="sensitivity_hint">交合、口交这类难姿势的给分普遍只有 0.10~0.30，用「标准」档会被门槛丢掉 —— </span>
+        <strong data-i18n="sensitivity_hint_strong">该遮没遮就选「最高召回」。</strong>
+        <span data-i18n="sensitivity_hint_fg">女性阴部与男性生殖器各有专属门槛（NSFW_FG_THRESHOLD / NSFW_MG_THRESHOLD），可按需调整。</span>
+      </p>
+    </div>
+
+    <div class="field">
+      <label for="shapeMask" data-i18n="shape_mask">遮罩形状</label>
+      <select id="shapeMask">
+        <option value="shape" selected data-i18n="shape_contour">贴合部位轮廓（推荐）</option>
+        <option value="rect" data-i18n="shape_rect">矩形框</option>
+      </select>
+      <p class="hint" data-i18n="shape_hint">
+        贴合模式用 SAM 分割出部位的真实边界，只对轮廓内打码，不再把整个框涂成一个方块。矩形模式是原来的行为。
+      </p>
+    </div>
+
+    <div class="field">
+      <label for="maskInset"><span data-i18n="mask_inset">遮罩内收</span> <output id="maskInsetVal">15</output> %</label>
+      <input id="maskInset" type="range" min="0" max="40" step="1" value="15">
+      <p class="hint" data-i18n="mask_inset_hint">
+        检测框普遍偏松，往里收一圈能显著减少遮到周围的皮肤。15% 适合大多数情况；发现没遮住边缘再调小。
+      </p>
+    </div>
+
+    <div class="field">
+      <label for="padding"><span data-i18n="padding">遮罩扩张</span> <output id="paddingVal">3</output> px</label>
+      <input id="padding" type="range" min="0" max="60" step="1" value="3">
+      <p class="hint" data-i18n="padding_hint">
+        以检测框（矩形模式）或分割出的轮廓（贴合模式）为基准向外扩多少像素。0 = 最精准，不额外扩张。
+      </p>
+    </div>
+
+    <div class="field">
+      <label for="feather"><span data-i18n="feather">边缘羽化</span> <output id="featherVal">2</output> px</label>
+      <input id="feather" type="range" min="0" max="30" step="1" value="2">
+      <p class="hint" data-i18n="feather_hint">轮廓边缘的过渡宽度。0 = 硬边，数值越大越柔和。</p>
+    </div>
+
+    <div class="field">
+      <label for="intensity"><span data-i18n="intensity">遮挡强度</span> <output id="intensityVal">51</output></label>
+      <input id="intensity" type="range" min="11" max="151" step="2" value="51">
+      <p class="hint" data-i18n="intensity_hint">高斯模糊用半径，马赛克用块大小。数值越大遮挡越彻底。</p>
+    </div>
+
+    <div class="field">
+      <div id="status" class="status" data-i18n="status_ready">就绪</div>
+    </div>
+
+    <div class="field">
+      <button id="resetSettings" class="ghost-btn full" type="button" data-i18n="reset_settings">恢复默认设置</button>
+      <p class="hint" data-i18n="settings_hint">所有参数都会自动记住，下次打开保持上次的设置。</p>
+    </div>
+  </section>
+
+  <div class="right-col">
+  <section class="card" aria-label="上传">
+    <h2 data-i18n="upload_title">上传图片</h2>
+    <div id="dropzone" class="dropzone" tabindex="0" role="button"
+         data-i18n-aria="dropzone_aria" aria-label="点击或拖拽图片到此处上传">
+      <p class="dz-title" data-i18n="dropzone_title">点击选择图片，或把图片 / 整个文件夹拖到这里</p>
+      <p class="hint" data-i18n="dropzone_hint">支持 JPG / PNG / WEBP，单张最大 10 MB。拖入文件夹时会自动处理其中全部图片，结果输出到 output/ 下的同名文件夹</p>
+    </div>
+    <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+  </section>
+<section id="batchPanel" class="card hidden" aria-label="队列">
+  <div class="panel-head">
+    <h2 data-i18n="queue_title">处理队列</h2>
+    <span id="queueCount" class="pill">0 Files</span>
+  </div>
+  <div id="queueList" class="queue"></div>
+</section>
+
+<section id="results" class="card hidden" aria-label="结果">
+  <div class="panel-head">
+    <h2 data-i18n="results_title">处理结果</h2>
+    <span id="blurLabel" class="pill">—</span>
+  </div>
+
+  <p id="fileNameDisplay" class="filename"></p>
+  <p id="summaryInfo" class="summary"></p>
+
+  <div class="compare">
+  <div class="editor-cell">
+<section id="editorPanel" class="hidden" aria-label="手动调整遮罩">
+  <div class="scores-block" id="editorBlock">
+    <h3 data-i18n="editor_title">手动调整遮罩</h3>
+    <p class="hint">
+      <span data-i18n="editor_hint">自动分割靠颜色边界工作，当部位与周围皮肤颜色接近时它会找不到边界。这里可以直接涂出要遮的范围 —— </span>
+      <strong data-i18n="editor_hint_strong">涂哪里就只打哪里</strong><span data-i18n="editor_hint_tail">，完全不受模型判断影响。红色区域会被打码。</span>
+    </p>
+    <div class="editor-toolbar">
+      <div class="tool-group">
+        <button id="toolPaint" class="tool-btn active" type="button" data-i18n="tool_paint">涂抹</button>
+        <button id="toolErase" class="tool-btn" type="button" data-i18n="tool_erase">擦除</button>
+      </div>
+      <label class="tool-range" for="brushSize">
+        <span data-i18n="brush">笔刷</span> <output id="brushSizeVal">40</output> px
+        <input id="brushSize" type="range" min="8" max="200" step="2" value="40">
+      </label>
+      <button id="editorUndo" class="ghost-btn" type="button" disabled data-i18n="undo">撤回</button>
+      <button id="editorRedo" class="ghost-btn" type="button" disabled data-i18n="redo">恢复</button>
+      <button id="editorResetAuto" class="ghost-btn" type="button" data-i18n="reset_auto">恢复自动遮罩</button>
+      <button id="editorClear" class="ghost-btn" type="button" data-i18n="clear_all">全部清除</button>
+      <button id="editorApply" class="primary-btn small" type="button" data-i18n="apply_remask">按此遮罩重新打码</button>
+    </div>
+    <div class="editor-stage">
+      <canvas id="editorCanvas"></canvas>
+      <div id="brushCursor" class="brush-cursor hidden" aria-hidden="true"></div>
+    </div>
+    <p class="hint" id="editorStatus">上传图片后即可在此手动调整遮罩。</p>
+  </div>
+</section>
+  </div>
+
+    <figure>
+      <figcaption data-i18n="result_img_caption">打码结果</figcaption>
+      <div class="imgwrap">
+        <div id="skeleton" class="skeleton hidden"></div>
+        <img id="processedImg" class="fade" data-i18n-alt="result_img_alt" alt="打码后的图片">
+        <div id="blurOverlay" class="overlay fade"></div>
+      </div>
+    </figure>
+  </div>
+
+  <div class="scores-block">
+    <h3 data-i18n="decisions_title">检测明细</h3>
+    <p class="hint" id="decisionsEmpty" data-i18n="decisions_empty_hint">模型检出的每一个部位及其处置结果。若某个位置该遮没遮，
+      这里会写明原因（比如「分数低于门槛」），据此调整上方灵敏度即可。</p>
+    <div id="decisionsContainer" class="decisions"></div>
+  </div>
+
+  <div class="scores-block">
+    <h3 data-i18n="scores_title">分类器评分</h3>
+    <div id="scoresContainer" class="scores"></div>
+  </div>
+
+  <div class="actions">
+    <a id="downloadBtn" class="primary-btn" href="#" download data-i18n="download">下载打码结果</a>
+    <button id="resetBtn" type="button" class="ghost-btn" data-i18n="start_over">清空重来</button>
+  </div>
+</section>
+
+  </div>
+</main>
+
+
+
+
+<footer class="footer">
+  <p data-i18n="footer_privacy">所有推理在本机完成，图片不会发送到任何外部服务。</p>
+</footer>
+
+<script src="/js/i18n.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
