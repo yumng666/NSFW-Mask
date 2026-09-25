@@ -81,14 +81,14 @@
     upgraded.push({ select: select, wrapper: wrapper });
   }
 
-  /** 模型加载横幅：/api/health 轮询，ready 前常驻顶部提示。 */
+  /** 模型加载横幅：仅 App 内启用（桌面版服务就绪后才打开页面，无需轮询）。 */
   function pollModelReady() {
+    if (!window.AndroidSaver) return; // 桌面浏览器：/api/health 没有 models_ready，横幅会永远挂着
     if (document.getElementById('model-bar')) return;
     var bar = document.createElement('div');
     bar.id = 'model-bar';
     bar.textContent = '模型加载中，首次启动需拷贝约 380MB，请稍候…';
     document.body.insertBefore(bar, document.body.firstChild);
-    var n = 0;
     var t = setInterval(function () {
       fetch('/api/health').then(function (r) { return r.json(); }).then(function (d) {
         if (d && d.models_ready) {
@@ -99,7 +99,6 @@
           clearInterval(t);
         }
       }).catch(function () { /* 服务未起，继续等 */ });
-      if (++n > 240) clearInterval(t);
     }, 500);
   }
 
