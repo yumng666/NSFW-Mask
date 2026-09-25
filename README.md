@@ -84,7 +84,10 @@ cat data/api_key          # Windows: type data\api_key
 （服务只监听 `127.0.0.1`，所以持久化在本机风险有限；但如果你之后改成对外监听，
 建议别勾。）
 
-也可以一键安装：`install/install_linux.sh` 或 `install/install_windows.ps1`。
+也可以一键安装：Windows 双击 `install/install_windows.bat`（自动绕过脚本执行
+策略、出错时窗口停留显示原因），或手动运行
+`powershell -ExecutionPolicy Bypass -File install\install_windows.ps1`；
+Linux 用 `install/install_linux.sh`。
 Linux 脚本会顺带写好 systemd 服务（含 `NoNewPrivileges`、`ProtectSystem`
 等基础加固，密钥通过 0600 的 `EnvironmentFile` 注入）。
 
