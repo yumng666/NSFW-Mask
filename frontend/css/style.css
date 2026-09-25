@@ -665,3 +665,12 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   background: #7f1d1d;
   border-color: #ef4444;
 }
+
+/* 品牌署名 */
+.brand-by {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-inline-start: 6px;
+  white-space: nowrap;
+}
