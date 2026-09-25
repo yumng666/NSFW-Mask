@@ -24,6 +24,7 @@
   const scoresContainer = $('scoresContainer');
   const resetBtn = $('resetBtn');
   const downloadBtn = $('downloadBtn');
+  const downloadAllBtn = $('downloadAllBtn');
   const fileNameDisplay = $('fileNameDisplay');
   const summaryInfo = $('summaryInfo');
   const blurLabel = $('blurLabel');
@@ -627,8 +628,10 @@
       }
 
       const data = await resp.json();
-      processedImg.src = data.processed_url;
-      downloadBtn.href = data.processed_url;
+      // remask 覆盖同一输出文件，加时间戳防止 WebView/浏览器用缓存旧图
+      const bust = data.processed_url + (data.processed_url.includes('?') ? '&' : '?') + 'r=' + Date.now();
+      processedImg.src = bust;
+      downloadBtn.href = bust;
       setEditorStatus(
         '已按你的遮罩重新打码，覆盖 ' + Number(data.masked_pixels).toLocaleString() + ' 个像素。'
       );
@@ -771,6 +774,81 @@
     if (files.length > 0) handleUpload(files.map((f) => ({ file: f, folder: null })));
   });
 
+  // ------------------------------------------------ 批量下载全部打码结果
+  function relFromUrl(url) {
+    return (url || '').split('/api/files/').pop().split('?')[0];
+  }
+
+  function triggerDownload(url, name) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  downloadAllBtn.addEventListener('click', () => {
+    const items = allResults.filter((r) => r.data && r.data.processed_url);
+    if (!items.length) {
+      // 还没有任何成功结果：直接给出提示
+      setStatus(t('download_all_none'), 'bad');
+      flashButton(t('download_all_none'), true);
+      if (window.AndroidSaver && window.AndroidSaver.notify) window.AndroidSaver.notify(t('download_all_none'));
+      return;
+    }
+
+    if (window.AndroidSaver && typeof window.AndroidSaver.save === 'function') {
+      // 手机 App：走 JS 桥逐张同步保存到相册，精确统计成败
+      let ok = 0;
+      const fails = [];
+      items.forEach(({ data, file }) => {
+        try {
+          const rel = relFromUrl(data.processed_url);
+          const name = 'censored_' + (data.filename || (file && file.name) || 'image.png');
+          const r = window.AndroidSaver.save(rel, name);
+          if (r === 'OK') ok += 1;
+          else fails.push((data.filename || '图片') + '：' + r);
+        } catch (err) {
+          fails.push((data.filename || '图片') + '：' + (err && err.message ? err.message : '保存异常'));
+        }
+      });
+      let msg;
+      if (fails.length) {
+        msg = t('download_all_partial', { ok: ok, fail: fails.length }) + '  ' + fails.slice(0, 2).join('；');
+        setStatus(msg, 'bad');
+      } else {
+        msg = t('download_all_done', { n: ok });
+        setStatus(msg, 'ok');
+      }
+      // 反馈给到点击处：按钮文字临时变为结果 + 系统 Toast 全局弹出
+      flashButton(msg, fails.length > 0);
+      if (window.AndroidSaver.notify) window.AndroidSaver.notify(msg);
+    } else {
+      // 桌面浏览器：逐个触发浏览器下载，文件名带原名区分
+      items.forEach(({ data, file }, i) => {
+        const name = 'censored_' + (data.filename || (file && file.name) || 'image.png');
+        setTimeout(() => triggerDownload(data.processed_url, name), i * 200);
+      });
+      const msg = t('download_all_started', { n: items.length });
+      setStatus(msg, 'ok');
+      flashButton(msg, false);
+    }
+  });
+
+  // 按钮内联反馈：文字临时换成结果，2.5 秒后复原（失败态变红）
+  let flashTimer = null;
+  function flashButton(msg, isError) {
+    if (flashTimer) clearTimeout(flashTimer);
+    downloadAllBtn.textContent = msg.length > 24 ? msg.slice(0, 24) + '…' : msg;
+    downloadAllBtn.classList.toggle('flash-error', isError);
+    flashTimer = setTimeout(() => {
+      downloadAllBtn.textContent = t('download_all');
+      downloadAllBtn.classList.remove('flash-error');
+      flashTimer = null;
+    }, 2500);
+  }
+
   resetBtn.addEventListener('click', () => {
     results.classList.add('hidden');
     batchPanel.classList.add('hidden');
@@ -910,8 +988,12 @@
         slot.el.textContent = '';
         const tag = document.createElement('span');
         tag.className = 'tag bad';
-        tag.textContent = t('tag_failed');
+        const reason = (error && error.message) ? String(error.message) : '';
+        // 手机端没有控制台：失败原因直接写在卡片上，截个图就能反馈
+        tag.textContent = reason ? ('失败: ' + reason.slice(0, 80)) : t('tag_failed');
+        tag.title = reason;
         slot.el.appendChild(tag);
+        setStatus(reason || t('tag_failed'), 'bad');
         console.error('process failed', error);
       }
     }

@@ -571,3 +571,97 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   width: auto;
   flex: 0 0 auto;
 }
+
+/* ---------- 手机适配（≤700px）---------- */
+@media (max-width: 700px) {
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px 14px;
+  }
+  .brand { justify-content: center; }
+  .disclaimer { margin: 0; max-width: none; flex-basis: auto; }
+
+  /* keybox 重排：第一行 语言 + API Key 输入框；第二行 记住/一键填写/保存 */
+  .keybox { flex-wrap: wrap; row-gap: 8px; }
+  .keybox label[for="langSelect"] { order: 1; }
+  #langSelect { order: 2; }
+  .keybox label[for="apiKeyInput"] { order: 3; }
+  #apiKeyInput { order: 4; flex: 1 1 120px; width: auto; min-width: 0; }
+  .keybox .remember { order: 5; }
+  #keyFillBtn { order: 6; }
+  #keySaveBtn { order: 7; }
+  .keybox input { width: auto; }
+
+  .layout {
+    grid-template-columns: 1fr;
+    padding: 12px 14px;
+  }
+}
+
+/* ---------- 树形展开选择器（手机端替代原生 select 弹窗）---------- */
+.tree-select { position: relative; }
+.tree-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+.tree-btn .caret { transition: transform 0.15s ease; font-size: 11px; opacity: 0.7; }
+.tree-select.open .tree-btn .caret { transform: rotate(90deg); }
+.tree-panel {
+  display: none;
+  margin-top: 6px;
+  border-left: 2px solid var(--accent);
+  background: var(--panel-2);
+  border-radius: 0 8px 8px 0;
+  overflow: hidden;
+}
+.tree-select.open .tree-panel { display: block; }
+.tree-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px 10px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+.tree-opt:last-child { border-bottom: 0; }
+.tree-opt::before { content: "└"; opacity: 0.5; font-size: 11px; }
+.tree-opt.active { color: var(--text); background: rgba(59, 130, 246, 0.15); font-weight: 500; }
+.tree-opt.active::before { content: "●"; color: var(--accent); opacity: 1; }
+
+/* 模型加载横幅 */
+#model-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 8px 14px;
+  background: rgba(234, 179, 8, 0.15);
+  border-bottom: 1px solid rgba(234, 179, 8, 0.45);
+  color: #eab308;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* 批量下载失败态按钮反馈 */
+.primary-btn.flash-error {
+  background: #7f1d1d;
+  border-color: #ef4444;
+}
