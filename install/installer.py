@@ -1,11 +1,13 @@
-"""NSFW Mask - graphical setup wizard (PyInstaller onefile, no console).
+"""NSFW Mask - single-file graphical setup wizard.
 
-Graphical replacement for install_windows.ps1: detects Python/GPU, creates
-the venv, installs dependencies (Tsinghua mirror), generates the API key,
-with live progress log in the window.
+All program files (backend/frontend/desktop_app.py/requirements) are embedded
+in this exe (PyInstaller --add-data). On install it extracts them to the
+chosen path, creates a venv with the system Python, installs dependencies
+(Tsinghua mirror), generates the API key, optionally creates a desktop
+shortcut, and can launch the app right away.
 
-Auto (unattended) mode for testing:
-    NSFW-Mask-Setup.exe --auto gpu --root "E:\\path\\to\\project"
+Unattended self-test mode:
+    NSFW-Mask-Setup.exe --auto gpu|cpu --root "D:\\target\\dir" [--no-shortcut]
 """
 from __future__ import annotations
 
@@ -22,21 +24,45 @@ import webview
 PIP_MIRROR = "https://pypi.tuna.tsinghua.edu.cn/simple"
 PYTHON_DOWNLOAD = "https://www.python.org/downloads/"
 
+# 无控制台 exe 的子进程：显式空 stdin + 禁止新建控制台窗口
+# （继承无效 stdio 句柄会让控制台子进程 DLL 初始化失败 0xC0000142）
+SUBPROCESS_KWARGS = {
+    "stdin": subprocess.DEVNULL,
+    "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+}
 
-def get_root() -> str:
+# 内嵌资源根（onefile 运行时为解压目录；源码运行时为项目根）
+if getattr(sys, "frozen", False):
+    RESOURCE_BASE = sys._MEIPASS
+else:
+    RESOURCE_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+EMBED_ITEMS = [
+    "backend",
+    "frontend",
+    "desktop_app.py",
+    "requirements.txt",
+    "requirements-gpu.txt",
+    "app.ico",
+]
+
+TARGET_DEFAULT = os.path.join(
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "NSFW-Mask"
+)
+
+
+def get_target() -> str:
     if "--root" in sys.argv:
         return os.path.abspath(sys.argv[sys.argv.index("--root") + 1])
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(os.path.abspath(sys.executable))
-    return os.path.dirname(os.path.abspath(__file__))
+    return TARGET_DEFAULT
 
 
-ROOT = get_root()
+TARGET = get_target()
+AUTO = "--auto" in sys.argv
 
 
 def log_ui(line: str, kind: str = "info") -> None:
-    """把一行日志推送到向导页面（JSON 转义后 evaluate_js）；--auto 模式打印到控制台。"""
-    if "--auto" in sys.argv:
+    if AUTO:
         print(line)
     try:
         payload = json.dumps(f"[{kind}] {line}")
@@ -55,7 +81,6 @@ def phase_ui(phase: str, text: str = "") -> None:
 
 
 def find_python() -> tuple[str | None, str]:
-    """探测系统 Python 3.10+，返回 (命令, 版本) 或 (None, '')。"""
     for cmd in (["py", "-3"], ["python"], ["python3"]):
         exe = cmd[0]
         if not shutil.which(exe):
@@ -64,6 +89,8 @@ def find_python() -> tuple[str | None, str]:
             out = subprocess.run(
                 cmd + ["-c", "import sys;print('%d.%d'%sys.version_info[:2])"],
                 capture_output=True, text=True, timeout=20,
+                stdin=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             ver = (out.stdout or "").strip()
             major, _, minor = ver.partition(".")
@@ -78,31 +105,91 @@ def detect_gpu() -> bool:
     return bool(shutil.which("nvidia-smi"))
 
 
+def extract_program_files(target: str) -> None:
+    log_ui(f"释放程序文件到 {target}")
+    for item in EMBED_ITEMS:
+        src = os.path.join(RESOURCE_BASE, item)
+        dst = os.path.join(target, item)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__"))
+        else:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+    log_ui(f"程序文件释放完成（{len(EMBED_ITEMS)} 项）")
+
+
+def create_shortcut(target: str) -> None:
+    """桌面快捷方式：指向 venv pythonw + desktop_app.py，图标 app.ico。"""
+    try:
+        desktop = os.path.join(
+            os.environ.get("USERPROFILE", os.path.expanduser("~")), "Desktop"
+        )
+        lnk = os.path.join(desktop, "NSFW Mask.lnk")
+        pythonw = os.path.join(target, "venv", "Scripts", "pythonw.exe")
+        app_py = os.path.join(target, "desktop_app.py")
+        ico = os.path.join(target, "app.ico")
+        ps = (
+            f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');"
+            f"$s.TargetPath='{pythonw}';"
+            f"$s.Arguments='\\\"{app_py}\\\"';"
+            f"$s.WorkingDirectory='{target}';"
+            f"$s.IconLocation='{ico}';"
+            "$s.Save()"
+        )
+        shell_cmd = ["powershell", "-NoProfile", "-Command", ps]
+        subprocess.run(shell_cmd, capture_output=True, timeout=30,
+                       stdin=subprocess.DEVNULL,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        log_ui("已创建桌面快捷方式", "ok")
+    except Exception as exc:
+        log_ui(f"快捷方式创建失败（不影响使用）：{exc}", "error")
+
+
+def launch_app(target: str) -> None:
+    pythonw = os.path.join(target, "venv", "Scripts", "pythonw.exe")
+    app_py = os.path.join(target, "desktop_app.py")
+    if os.path.exists(pythonw) and os.path.exists(app_py):
+        subprocess.Popen([pythonw, app_py], cwd=target, close_fds=True)
+        log_ui("NSFW Mask 已启动", "ok")
+
+
 class Api:
-    """JS 桥：环境检测 / 启动安装 / 打开下载页。"""
+    def choose_dir(self) -> str:
+        result = webview.windows[0].create_file_dialog(webview.FOLDER_DIALOG)
+        if result and isinstance(result, list) and result[0]:
+            return result[0]
+        return ""
 
     def env_check(self) -> str:
         py, ver = find_python()
-        info = {
+        return json.dumps({
             "python_found": py is not None,
             "python_ver": ver,
-            "python_cmd": py or "",
             "gpu": detect_gpu(),
-            "venv_exists": os.path.isdir(os.path.join(ROOT, "venv")),
-        }
-        return json.dumps(info)
+            "default_path": TARGET,
+        })
 
     def open_python_download(self) -> None:
         webbrowser.open(PYTHON_DOWNLOAD)
 
-    def start_install(self, gpu: bool = False) -> str:
-        threading.Thread(target=_run_install, args=(bool(gpu),), daemon=True).start()
+    def start_install(self, gpu: bool = False, path: str = "", shortcut: bool = True,
+                      run_after: bool = True) -> str:
+        threading.Thread(
+            target=_run_install,
+            args=(bool(gpu), path or TARGET, bool(shortcut), bool(run_after)),
+            daemon=True,
+        ).start()
         return "started"
 
+    def run_app(self, path: str = "") -> str:
+        launch_app(path or TARGET)
+        return "ok"
 
-def _run_install(gpu: bool) -> None:
+
+def _run_install(gpu: bool, target: str, shortcut: bool, run_after: bool) -> None:
     try:
-        _install(gpu)
+        _install(gpu, target, shortcut, run_after)
     except Exception as exc:
         log_ui(f"安装失败：{exc}", "error")
         phase_ui("error", str(exc))
@@ -111,9 +198,9 @@ def _run_install(gpu: bool) -> None:
 def _run_step(title: str, cmd: list[str], cwd: str | None = None) -> None:
     log_ui("$ " + " ".join(cmd), "cmd")
     proc = subprocess.Popen(
-        cmd, cwd=cwd or ROOT,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, bufsize=1, errors="replace",
+        cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL, text=True, bufsize=1, errors="replace",
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     assert proc.stdout is not None
     for line in proc.stdout:
@@ -123,7 +210,12 @@ def _run_step(title: str, cmd: list[str], cwd: str | None = None) -> None:
         raise RuntimeError(f"{title} 失败（退出码 {code}）")
 
 
-def _install(gpu: bool) -> None:
+def _install(gpu: bool, target: str, shortcut: bool, run_after: bool) -> None:
+    os.makedirs(target, exist_ok=True)
+
+    phase_ui("extract", "释放程序文件…")
+    extract_program_files(target)
+
     py, ver = find_python()
     if not py:
         phase_ui("error", "未找到 Python 3.10+")
@@ -132,22 +224,17 @@ def _install(gpu: bool) -> None:
     log_ui(f"使用 Python {ver}（{py}）")
 
     phase_ui("venv", "创建虚拟环境…")
-    venv_dir = os.path.join(ROOT, "venv")
+    venv_dir = os.path.join(target, "venv")
     py_parts = py.split(" ")
-    _run_step("创建 venv", py_parts + ["-m", "venv", venv_dir])
-
+    _run_step("创建 venv", py_parts + ["-m", "venv", venv_dir], cwd=target)
     vpy = os.path.join(venv_dir, "Scripts", "python.exe")
     if not os.path.exists(vpy):
         raise RuntimeError("venv 创建异常：未找到 venv\\Scripts\\python.exe")
 
     phase_ui("pip", "安装依赖（几分钟，取决于网络）…")
     req = "requirements-gpu.txt" if gpu else "requirements.txt"
-    if not os.path.exists(os.path.join(ROOT, req)):
-        raise RuntimeError(f"缺少 {req}")
-    _run_step(
-        "安装依赖",
-        [vpy, "-m", "pip", "install", "-r", req, "-i", PIP_MIRROR],
-    )
+    _run_step("安装依赖", [vpy, "-m", "pip", "install", "-r", req, "-i", PIP_MIRROR],
+              cwd=target)
 
     phase_ui("key", "生成 API 密钥…")
     key_script = (
@@ -155,10 +242,17 @@ def _install(gpu: bool) -> None:
         "config.ensure_dirs(); "
         "SecretStore(config.API_KEY_FILE, config.SIGNING_KEY_FILE).api_key"
     )
-    _run_step("生成密钥", [vpy, "-c", key_script])
+    _run_step("生成密钥", [vpy, "-c", key_script], cwd=target)
+
+    if shortcut:
+        phase_ui("shortcut", "创建桌面快捷方式…")
+        create_shortcut(target)
 
     phase_ui("done", "安装完成")
-    log_ui("全部完成！关闭本向导，双击 NSFW-Mask.exe 即可启动。", "ok")
+    log_ui(f"全部完成！安装位置：{target}", "ok")
+    if run_after:
+        log_ui("正在启动 NSFW Mask…", "ok")
+        launch_app(target)
 
 
 PAGE = """<!DOCTYPE html>
@@ -172,7 +266,7 @@ PAGE = """<!DOCTYPE html>
   h1 span { color:#94a3b8; font-size:13px; margin-left:8px; }
   header p { margin:0; color:#94a3b8; font-size:12px; }
   main { flex:1; display:flex; flex-direction:column; padding:0 24px 16px;
-         gap:14px; min-height:0; }
+         gap:12px; min-height:0; overflow-y:auto; }
   .card { background:#111c33; border:1px solid #1e2d4d; border-radius:10px;
           padding:14px 16px; }
   .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
@@ -181,46 +275,63 @@ PAGE = """<!DOCTYPE html>
   .tag.ok { background:#052e1c; color:#34d399; }
   .tag.bad { background:#3b0d12; color:#f87171; }
   .btn { border:1px solid #2b426b; background:#16233f; color:#e2e8f0;
-         padding:10px 22px; border-radius:8px; font-size:14px; cursor:pointer; }
+         padding:8px 18px; border-radius:8px; font-size:14px; cursor:pointer; }
   .btn:hover { background:#1d2f55; }
   .btn.primary { background:#2563eb; border-color:#2563eb; }
   .btn.primary:hover { background:#1d4ed8; }
   .btn:disabled { opacity:.45; cursor:not-allowed; }
-  .btn.gpu { border-color:#7c3aed; }
+  .btn.small { padding:6px 12px; font-size:13px; }
   .phase { font-size:14px; color:#93c5fd; min-height:20px; }
-  #log { flex:1; min-height:120px; background:#0a1120; border:1px solid #1e2d4d;
+  #log { height:150px; flex:none; background:#0a1120; border:1px solid #1e2d4d;
          border-radius:10px; padding:10px 12px; overflow-y:auto;
          font:12px/1.5 Consolas,monospace; color:#9fb3c8; white-space:pre-wrap;
          word-break:break-all; }
   #log .error { color:#f87171; }
   #log .ok { color:#34d399; }
   #log .cmd { color:#7dd3fc; }
-  .hidden { display:none; }
+  input[type=text] { flex:1; min-width:280px; background:#0a1120;
+                     border:1px solid #2b426b; border-radius:8px;
+                     color:#e2e8f0; padding:8px 10px; font-size:13px; }
+  label.chk { display:flex; align-items:center; gap:6px; font-size:13px;
+              color:#cbd5e1; cursor:pointer; }
+  label.chk input { accent-color:#2563eb; }
   .note { color:#64748b; font-size:12px; }
+  .hidden { display:none; }
   a { color:#60a5fa; }
 </style></head><body>
 <header>
   <h1>NSFW Mask 安装向导<span>by yumng</span></h1>
-  <p>将为本机创建运行环境并安装依赖（约 2-5 GB 磁盘空间，取决于显卡模式）</p>
+  <p>单文件安装器：释放程序、创建运行环境、安装依赖（首次安装约需 2-5 GB 磁盘空间）</p>
 </header>
 <main>
   <div class="card">
     <div class="row" id="envRow"><span class="tag">正在检测环境…</span></div>
   </div>
-  <div class="card" id="chooseCard">
+  <div class="card" id="pathCard">
     <div class="row">
-      <span style="font-size:14px">显卡模式：</span>
-      <button class="btn gpu" id="btnGpu">NVIDIA GPU 加速</button>
+      <span style="font-size:14px;flex:none">安装位置：</span>
+      <input type="text" id="installPath">
+      <button class="btn small" onclick="pickDir()">浏览…</button>
+    </div>
+  </div>
+  <div class="card" id="optCard">
+    <div class="row">
+      <span style="font-size:14px;flex:none">显卡模式：</span>
+      <button class="btn" id="btnGpu">NVIDIA GPU 加速</button>
       <button class="btn" id="btnCpu">仅 CPU</button>
       <span class="note" id="gpuNote"></span>
     </div>
+    <div class="row" style="margin-top:10px">
+      <label class="chk"><input type="checkbox" id="chkShortcut" checked>创建桌面快捷方式</label>
+      <label class="chk"><input type="checkbox" id="chkRun" checked>安装完成后立即运行</label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn primary" id="btnInstall" disabled>开始安装</button>
+      <span class="note" id="installHint">请先确认显卡模式</span>
+    </div>
   </div>
   <div class="phase" id="phase"></div>
-  <div id="log"></div>
-  <div class="row hidden" id="doneRow">
-    <span class="tag ok">安装完成</span>
-    <span>关闭本向导，双击 <b>NSFW-Mask.exe</b> 启动程序。</span>
-  </div>
+  <div id="log" class="hidden"></div>
   <div class="row hidden" id="dlRow">
     <span class="note">未检测到 Python 3.10+：</span>
     <button class="btn" onclick="pywebview.api.open_python_download()">打开 Python 下载页</button>
@@ -228,8 +339,10 @@ PAGE = """<!DOCTYPE html>
   </div>
 </main>
 <script>
+let chosenGpu = null;
 function appendLog(line, kind) {
   const box = document.getElementById('log');
+  box.classList.remove('hidden');
   const div = document.createElement('div');
   if (kind) div.className = kind;
   div.textContent = line;
@@ -238,8 +351,7 @@ function appendLog(line, kind) {
 }
 function setPhase(phase, text) {
   const el = document.getElementById('phase');
-  if (phase === 'done') { el.textContent = '✔ 安装完成'; el.style.color = '#34d399';
-    document.getElementById('doneRow').classList.remove('hidden'); }
+  if (phase === 'done') { el.textContent = '✔ 安装完成'; el.style.color = '#34d399'; }
   else if (phase === 'error') { el.textContent = '✖ ' + text; el.style.color = '#f87171'; }
   else { el.textContent = text || phase; el.style.color = '#93c5fd'; }
 }
@@ -250,25 +362,52 @@ function renderEnv(info) {
     s.className = 'tag ' + (ok ? 'ok' : 'bad'); s.textContent = t; row.appendChild(s); };
   mk(info.python_found ? 'Python ' + info.python_ver + ' ✓' : 'Python 3.10+ 未找到',
      info.python_found);
-  mk(info.gpu ? '检测到 NVIDIA GPU' : '未检测到 NVIDIA GPU', info.gpu);
-  mk(info.venv_exists ? '已有 venv（将复用）' : '将创建 venv', true);
-  if (info.gpu) document.getElementById('gpuNote').textContent = '已检测到显卡，推荐 GPU 模式';
+  mk(info.gpu ? '检测到 NVIDIA GPU（推荐 GPU 模式）' : '未检测到 NVIDIA GPU（用 CPU 模式）',
+     info.gpu);
   if (!info.python_found) {
-    document.getElementById('chooseCard').classList.add('hidden');
     document.getElementById('dlRow').classList.remove('hidden');
+    document.getElementById('btnInstall').disabled = true;
+    document.getElementById('installHint').textContent = '缺少 Python，无法安装';
+  } else {
+    chosenGpu = info.gpu;  // 默认跟随检测结果，用户可改
+    highlight();
+    document.getElementById('btnInstall').disabled = false;
+    document.getElementById('installHint').textContent = '';
   }
-  if (info.gpu) { /* 预选高亮由用户确认 */ }
 }
-function beginInstall(gpu) {
+function highlight() {
+  document.getElementById('btnGpu').style.borderColor =
+    chosenGpu === true ? '#7c3aed' : '#2b426b';
+  document.getElementById('btnGpu').style.background =
+    chosenGpu === true ? '#241a4d' : '#16233f';
+  document.getElementById('btnCpu').style.borderColor =
+    chosenGpu === false ? '#2b426b' : '#2b426b';
+  document.getElementById('btnCpu').style.background =
+    chosenGpu === false ? '#16233f' : '#16233f';
+}
+function pickDir() {
+  pywebview.api.choose_dir().then((p) => {
+    if (p) document.getElementById('installPath').value = p;
+  });
+}
+function beginInstall() {
+  const path = document.getElementById('installPath').value.trim();
+  if (!path) { alert('请选择安装位置'); return; }
+  if (chosenGpu === null) { alert('请选择显卡模式'); return; }
+  document.getElementById('btnInstall').disabled = true;
   document.getElementById('btnGpu').disabled = true;
   document.getElementById('btnCpu').disabled = true;
-  pywebview.api.start_install(gpu);
+  const shortcut = document.getElementById('chkShortcut').checked;
+  const runAfter = document.getElementById('chkRun').checked;
+  pywebview.api.start_install(chosenGpu, path, shortcut, runAfter);
 }
 window.addEventListener('pywebviewready', async () => {
   const info = JSON.parse(await pywebview.api.env_check());
+  document.getElementById('installPath').value = info.default_path;
   renderEnv(info);
-  document.getElementById('btnGpu').onclick = () => beginInstall(true);
-  document.getElementById('btnCpu').onclick = () => beginInstall(false);
+  document.getElementById('btnGpu').onclick = () => { chosenGpu = true; highlight(); };
+  document.getElementById('btnCpu').onclick = () => { chosenGpu = false; highlight(); };
+  document.getElementById('btnInstall').onclick = beginInstall;
 });
 </script></body></html>"""
 
@@ -278,18 +417,20 @@ def main() -> None:
         "NSFW Mask 安装向导",
         html=PAGE,
         js_api=Api(),
-        width=760,
-        height=640,
-        min_size=(640, 520),
+        width=780,
+        height=680,
+        min_size=(660, 560),
         background_color="#0f172a",
     )
     webview.start(private_mode=False)
 
 
 if __name__ == "__main__":
-    if "--auto" in sys.argv:  # 无人值守自测：--auto gpu|cpu [--root DIR]
+    if AUTO:  # 无人值守自测：--auto gpu|cpu --root DIR [--no-shortcut] [--no-run]
         gpu = "gpu" in sys.argv
-        print(f"[auto] root={ROOT} gpu={gpu}")
-        _run_install(gpu)
+        shortcut = "--no-shortcut" not in sys.argv
+        run_after = "--no-run" not in sys.argv
+        print(f"[auto] target={TARGET} gpu={gpu}")
+        _run_install(gpu, TARGET, shortcut, run_after)
         sys.exit(0)
     main()
