@@ -44,6 +44,7 @@ EMBED_ITEMS = [
     "requirements.txt",
     "requirements-gpu.txt",
     "app.ico",
+    "NSFW-Mask.exe",
 ]
 
 TARGET_DEFAULT = os.path.join(
@@ -101,6 +102,15 @@ def find_python() -> tuple[str | None, str]:
     return None, ""
 
 
+def python_too_new(ver: str) -> bool:
+    """3.13+ 部分依赖（torch 等）可能尚无预编译包，安装易失败。"""
+    try:
+        major, minor = (int(x) for x in ver.split(".")[:2])
+        return (major, minor) > (3, 12)
+    except Exception:
+        return False
+
+
 def detect_gpu() -> bool:
     return bool(shutil.which("nvidia-smi"))
 
@@ -120,19 +130,17 @@ def extract_program_files(target: str) -> None:
 
 
 def create_shortcut(target: str) -> None:
-    """桌面快捷方式：指向 venv pythonw + desktop_app.py，图标 app.ico。"""
+    """桌面快捷方式：直接指向 NSFW-Mask.exe 启动器，图标 app.ico。"""
     try:
         desktop = os.path.join(
             os.environ.get("USERPROFILE", os.path.expanduser("~")), "Desktop"
         )
         lnk = os.path.join(desktop, "NSFW Mask.lnk")
-        pythonw = os.path.join(target, "venv", "Scripts", "pythonw.exe")
-        app_py = os.path.join(target, "desktop_app.py")
+        launcher = os.path.join(target, "NSFW-Mask.exe")
         ico = os.path.join(target, "app.ico")
         ps = (
             f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');"
-            f"$s.TargetPath='{pythonw}';"
-            f"$s.Arguments='\\\"{app_py}\\\"';"
+            f"$s.TargetPath='{launcher}';"
             f"$s.WorkingDirectory='{target}';"
             f"$s.IconLocation='{ico}';"
             "$s.Save()"
@@ -147,6 +155,11 @@ def create_shortcut(target: str) -> None:
 
 
 def launch_app(target: str) -> None:
+    launcher = os.path.join(target, "NSFW-Mask.exe")
+    if os.path.exists(launcher):
+        subprocess.Popen([launcher], cwd=target, close_fds=True)
+        log_ui("NSFW Mask 已启动", "ok")
+        return
     pythonw = os.path.join(target, "venv", "Scripts", "pythonw.exe")
     app_py = os.path.join(target, "desktop_app.py")
     if os.path.exists(pythonw) and os.path.exists(app_py):
@@ -156,16 +169,33 @@ def launch_app(target: str) -> None:
 
 class Api:
     def choose_dir(self) -> str:
-        result = webview.windows[0].create_file_dialog(webview.FOLDER_DIALOG)
-        if result and isinstance(result, list) and result[0]:
-            return result[0]
-        return ""
+        """弹系统文件夹选择框（PowerShell 子进程，稳定可靠）。"""
+        ps = (
+            "Add-Type -AssemblyName System.Windows.Forms | Out-Null;"
+            "$f = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            "$f.Description = '选择 NSFW Mask 安装位置';"
+            "$f.ShowNewFolderButton = $true;"
+            "$f.ShowDialog() | Out-Null; $f.SelectedPath"
+        )
+        try:
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-STA", "-Command", ps],
+                capture_output=True, text=True, timeout=120,
+                stdin=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            path = (out.stdout or "").strip()
+            return path
+        except Exception as exc:
+            log_ui(f"打开文件夹选择框失败：{exc}", "error")
+            return ""
 
     def env_check(self) -> str:
         py, ver = find_python()
         return json.dumps({
             "python_found": py is not None,
             "python_ver": ver,
+            "python_warn": python_too_new(ver) if py else False,
             "gpu": detect_gpu(),
             "default_path": TARGET,
         })
@@ -195,7 +225,8 @@ def _run_install(gpu: bool, target: str, shortcut: bool, run_after: bool) -> Non
         phase_ui("error", str(exc))
 
 
-def _run_step(title: str, cmd: list[str], cwd: str | None = None) -> None:
+def _run_step(title: str, cmd: list[str], cwd: str | None = None) -> tuple[int, list[str]]:
+    """执行子命令，实时推送日志。返回 (退出码, 最后几行输出)。"""
     log_ui("$ " + " ".join(cmd), "cmd")
     proc = subprocess.Popen(
         cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -203,11 +234,15 @@ def _run_step(title: str, cmd: list[str], cwd: str | None = None) -> None:
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     assert proc.stdout is not None
+    tail: list[str] = []
     for line in proc.stdout:
-        log_ui(line.rstrip())
+        text = line.rstrip()
+        tail.append(text)
+        if len(tail) > 8:
+            tail.pop(0)
+        log_ui(text)
     code = proc.wait()
-    if code != 0:
-        raise RuntimeError(f"{title} 失败（退出码 {code}）")
+    return code, tail
 
 
 def _install(gpu: bool, target: str, shortcut: bool, run_after: bool) -> None:
@@ -233,8 +268,16 @@ def _install(gpu: bool, target: str, shortcut: bool, run_after: bool) -> None:
 
     phase_ui("pip", "安装依赖（几分钟，取决于网络）…")
     req = "requirements-gpu.txt" if gpu else "requirements.txt"
-    _run_step("安装依赖", [vpy, "-m", "pip", "install", "-r", req, "-i", PIP_MIRROR],
-              cwd=target)
+    code, tail = _run_step("安装依赖",
+                           [vpy, "-m", "pip", "install", "-r", req, "-i", PIP_MIRROR],
+                           cwd=target)
+    if code != 0:
+        log_ui("镜像源安装失败，改用官方源重试…", "error")
+        code, tail = _run_step("安装依赖（官方源）",
+                               [vpy, "-m", "pip", "install", "-r", req],
+                               cwd=target)
+        if code != 0:
+            raise RuntimeError("依赖安装失败，pip 输出末尾：\n" + "\n".join(tail))
 
     phase_ui("key", "生成 API 密钥…")
     key_script = (
@@ -274,6 +317,7 @@ PAGE = """<!DOCTYPE html>
          background:#1e293b; color:#94a3b8; }
   .tag.ok { background:#052e1c; color:#34d399; }
   .tag.bad { background:#3b0d12; color:#f87171; }
+  .tag.warn { background:#3b2f0d; color:#fbbf24; }
   .btn { border:1px solid #2b426b; background:#16233f; color:#e2e8f0;
          padding:8px 18px; border-radius:8px; font-size:14px; cursor:pointer; }
   .btn:hover { background:#1d2f55; }
@@ -362,6 +406,7 @@ function renderEnv(info) {
     s.className = 'tag ' + (ok ? 'ok' : 'bad'); s.textContent = t; row.appendChild(s); };
   mk(info.python_found ? 'Python ' + info.python_ver + ' ✓' : 'Python 3.10+ 未找到',
      info.python_found);
+  if (info.python_warn) mk('版本较新，部分依赖可能安装失败', false);
   mk(info.gpu ? '检测到 NVIDIA GPU（推荐 GPU 模式）' : '未检测到 NVIDIA GPU（用 CPU 模式）',
      info.gpu);
   if (!info.python_found) {
