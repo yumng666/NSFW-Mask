@@ -674,3 +674,37 @@ select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   margin-inline-start: 6px;
   white-space: nowrap;
 }
+
+/* ---------- 桌面壳自绘标题栏（仅 pywebview 环境显示） ---------- */
+.titlebar {
+  height: 36px;
+  display: flex;
+  align-items: stretch;
+  background: #0b1120;
+  user-select: none;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.titlebar.hidden { display: none; }
+.tb-drag {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.tb-sub { color: #64748b; margin-left: 6px; font-size: 11px; }
+.tb-btns { display: flex; height: 100%; }
+.tb-btns button {
+  width: 46px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tb-btns button:hover { background: #1e293b; color: #e2e8f0; }
+.tb-btns button.tb-close:hover { background: #dc2626; color: #fff; }

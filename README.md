@@ -84,8 +84,9 @@ cat data/api_key          # Windows: type data\api_key
 （服务只监听 `127.0.0.1`，所以持久化在本机风险有限；但如果你之后改成对外监听，
 建议别勾。）
 
-也可以一键安装：Windows 双击 `install/install_windows.bat`（自动绕过脚本执行
-策略、出错时窗口停留显示原因），或手动运行
+也可以一键安装：Windows 双击 `install/NSFW-Mask-Setup.exe`（图形化向导：
+自动检测 Python/显卡、实时安装日志、自动生成密钥），或 `install/install_windows.bat`
+（自动绕过脚本执行策略、出错时窗口停留显示原因），或手动运行
 `powershell -ExecutionPolicy Bypass -File install\install_windows.ps1`；
 Linux 用 `install/install_linux.sh`。
 Linux 脚本会顺带写好 systemd 服务（含 `NoNewPrivileges`、`ProtectSystem`

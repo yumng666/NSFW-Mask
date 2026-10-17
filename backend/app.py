@@ -103,7 +103,8 @@ def cleanup_old_files() -> int:
                 if os.path.isfile(entry) and os.stat(entry).st_mtime < cutoff:
                     os.remove(entry)
                     removed += 1
-            except OSError:
+            except (OSError, SystemExit):
+                # SystemExit：部分安全软件/守护组件会以它拒绝删除，跳过该文件
                 continue
     if removed:
         print(f"[Cleanup] 已清理 {removed} 个过期文件")
@@ -564,6 +565,16 @@ app = FastAPI(
     redoc_url=None,
     openapi_url="/api/openapi.json",
 )
+
+
+@app.middleware("http")
+async def no_cache_middleware(request, call_next):
+    """桌面单机场景禁用 HTTP 缓存：前端文件更新后，本地 WebView2/浏览器
+    不再拿到旧页面（曾导致标题栏/功能更新不生效）。"""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter

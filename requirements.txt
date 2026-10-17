@@ -21,3 +21,4 @@ opencv-python-headless>=4.8
 nudenet>=3.4.2
 torch>=2.2
 transformers>=4.40
+pywebview>=6.0

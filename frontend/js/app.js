@@ -885,6 +885,12 @@
     }, 1200);
   });
 
+  // 打开页面时自动填写本机 API Key（等价于自动点一次"一键填写"），
+  // 按钮保留，方便手动重新获取。失败静默——状态栏不吵。
+  window.addEventListener('load', () => {
+    if (!apiKeyInput.value) keyFillBtn.click();
+  });
+
   resetBtn.addEventListener('click', () => {
     results.classList.add('hidden');
     batchPanel.classList.add('hidden');
