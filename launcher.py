@@ -2,6 +2,7 @@
 
 Double-click entry for the desktop app. Locates the project venv next to the
 exe and hands off to desktop_app.py under pythonw (no console window).
+Missing pywebview is auto-installed from the Tsinghua mirror before launch.
 Failures are logged to launcher.log next to the exe so silent deaths can be
 diagnosed.
 """
@@ -43,24 +44,41 @@ def main() -> None:
         fail("未找到运行环境。\n\n请先运行 install\\install_windows.bat 完成安装，再双击本程序。")
         return
 
-    # venv 里需要已安装 pywebview（安装脚本会装）；缺它时 pythonw 会静默失败，
-    # 这里预检给用户明确提示。注意必须用 pythonw（GUI 子系统）—— 用 python.exe
-    # 会在无控制台的父进程下闪出一个终端窗口。
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    # venv 里需要已安装 pywebview（新版安装向导会装）；缺失时自动从国内镜像
+    # 补装（旧版本安装的环境升级到桌面版时走这条路），装好重试，仍失败才提示。
     try:
         check = subprocess.run(
             [pythonw, "-c", "import webview"],
             cwd=root, capture_output=True, timeout=60,
+            stdin=subprocess.DEVNULL, creationflags=flags,
         )
         if check.returncode != 0:
-            fail("缺少桌面窗口组件 (pywebview)。\n\n请重新运行 install\\install_windows.bat 修复。")
-            return
+            log("pywebview missing - auto installing from mirror ...")
+            subprocess.run(
+                [python, "-m", "pip", "install", "pywebview>=6.0",
+                 "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"],
+                cwd=root, capture_output=True, timeout=600,
+                stdin=subprocess.DEVNULL, creationflags=flags,
+            )
+            check = subprocess.run(
+                [pythonw, "-c", "import webview"],
+                cwd=root, capture_output=True, timeout=60,
+                stdin=subprocess.DEVNULL, creationflags=flags,
+            )
+            if check.returncode != 0:
+                fail("桌面窗口组件 (pywebview) 自动安装失败。\n\n"
+                     "请运行 install\\install_windows.bat 或重新运行 NSFW-Mask-Setup.exe 修复。")
+                return
+            log("pywebview auto-installed")
     except Exception as exc:
         fail("环境检查失败：%s" % exc)
 
     try:
         # CREATE_NO_WINDOW：pythonw 本就无窗口，显式标志防止任何控制台闪现
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        subprocess.Popen([pythonw, app], cwd=root, close_fds=True, creationflags=flags)
+        subprocess.Popen([pythonw, app], cwd=root, close_fds=True,
+                         creationflags=flags)
         log("handoff ok")
     except Exception as exc:
         log("Popen error:\n" + traceback.format_exc())
