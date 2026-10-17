@@ -68,6 +68,7 @@
   const editorClear = $('editorClear');
   const editorApply = $('editorApply');
   const editorBlock = $('editorBlock');
+  const editorNextBtn = $('editorNext');
 
   // 密钥存储分两层：
   //   session  —— 只要填过就存，关掉标签页即失效（默认行为）
@@ -79,6 +80,7 @@
   const MAX_FILES_PER_RUN = 200;   // 文件夹批处理场景下 20 张太少
 
   let allResults = [];
+  let currentResultIndex = -1;
 
 
   // ---------------------------------------------------------------- 密钥
@@ -849,6 +851,40 @@
     }, 2500);
   }
 
+  // 下一张：跳到批量队列中的下一条结果，循环往复，方便逐张编辑；
+  // 从最后一张绕回第一张时给出额外提示。
+  // 反馈直接写在按钮上（系统 Toast 有排队延迟，不用于此处的及时反馈）。
+  let nextFlashTimer = null;
+  editorNextBtn.addEventListener('click', () => {
+    if (allResults.length < 2) {
+      setStatus(t('next_image_single'), 'bad');
+      return;
+    }
+    const wrapped = currentResultIndex === allResults.length - 1;
+    const idx = (currentResultIndex + 1 + allResults.length) % allResults.length;
+    const item = allResults[idx];
+    displayResult(item.data, item.file);
+    editorBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    const params = {
+      i: idx + 1,
+      n: allResults.length,
+      name: item.data.filename || (item.file && item.file.name) || '',
+    };
+    const msg = wrapped
+      ? t('next_image_wrap', params)
+      : t('next_image_pos', params);
+    setStatus(msg, 'ok');
+    // 按钮文字即点即显"第 i / n 张"，1.2 秒后复原
+    if (nextFlashTimer) clearTimeout(nextFlashTimer);
+    editorNextBtn.textContent = wrapped
+      ? t('next_image_flash_wrap')
+      : t('next_image_flash', { i: idx + 1, n: allResults.length });
+    nextFlashTimer = setTimeout(() => {
+      editorNextBtn.textContent = t('next_image');
+      nextFlashTimer = null;
+    }, 1200);
+  });
+
   resetBtn.addEventListener('click', () => {
     results.classList.add('hidden');
     batchPanel.classList.add('hidden');
@@ -878,6 +914,7 @@
     }
     setEditorStatus(t('editor_idle'));
     allResults = [];
+    currentResultIndex = -1;
     setStatus(t('status_ready'), '');
   });
 
@@ -900,6 +937,7 @@
     }
 
     allResults = [];
+    currentResultIndex = -1;
     queueList.textContent = '';
     batchPanel.classList.remove('hidden');
     results.classList.add('hidden');
@@ -1022,6 +1060,9 @@
   function displayResult(data, originalFile) {
     results.classList.remove('hidden');
     results.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    // 记录当前结果在批量队列中的位置，供"下一张"按钮跳转
+    currentResultIndex = allResults.findIndex((r) => r.data.id === data.id);
 
     fileNameDisplay.textContent = originalFile.name;
     setStatus(t('analysis_done'), 'ok');
