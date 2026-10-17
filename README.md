@@ -6,8 +6,31 @@
 
 **图片全程不出本机**，推理使用两个本地模型，不调用任何云端 API。
 
+**v2.0.0 起**：Windows 提供**桌面窗口应用**（双击即用，无需浏览器）与
+**单文件图形化安装器**，并新增 **Android 客户端**（完全离线）。
+
 > 漏洞详情、修复方案与验证记录见 [SECURITY.md](SECURITY.md)。
 > 如果你只想知道"上游有什么问题"，直接看那一份即可。
+
+---
+
+## 下载与安装（推荐普通用户使用）
+
+从 [Releases](https://github.com/yumng666/NSFW-Mask/releases) 下载最新版本：
+
+| 文件 | 平台 | 大小 | 说明 |
+|---|---|---|---|
+| `NSFW-Mask-Setup.exe` | Windows 10/11 | ~20 MB | **单文件安装器**：内嵌全部程序文件，双击按向导安装 |
+| `NSFW-Mask-mobile.apk` | Android 8.0+ | ~456 MB | 手机版，安装即用，完全离线 |
+
+**Windows 三步上手**：
+
+1. 双击 `NSFW-Mask-Setup.exe`（需已安装 Python 3.10–3.12，向导会自动检测并给出提示）
+2. 选择安装位置与显卡模式（自动识别 NVIDIA），点击"开始安装"
+3. 安装完成后程序自动启动（也可用桌面快捷方式）；AI 模型在首次打码时自动下载（约 330 MB，需网络）
+
+安装器支持：自定义安装位置、桌面快捷方式、安装后直接运行、实时安装日志、
+缺组件自动补装（如 pywebview）。依赖走国内镜像，失败自动换官方源重试。
 
 ---
 
@@ -27,7 +50,9 @@
 
 ---
 
-## 快速开始
+## 从源码运行（开发者 / 高级用法）
+
+以下内容面向直接跑源码的场景；普通用户看上一节即可。
 
 ### 依赖要求
 
@@ -84,11 +109,10 @@ cat data/api_key          # Windows: type data\api_key
 （服务只监听 `127.0.0.1`，所以持久化在本机风险有限；但如果你之后改成对外监听，
 建议别勾。）
 
-也可以一键安装：Windows 双击 `install/NSFW-Mask-Setup.exe`（图形化向导：
-自动检测 Python/显卡、实时安装日志、自动生成密钥），或 `install/install_windows.bat`
-（自动绕过脚本执行策略、出错时窗口停留显示原因），或手动运行
-`powershell -ExecutionPolicy Bypass -File install\install_windows.ps1`；
-Linux 用 `install/install_linux.sh`。
+也可以一键安装：双击 `install\NSFW-Mask-Setup.exe` 图形化向导（自动检测
+Python/显卡、安装位置可选、实时日志、完成后可创建桌面快捷方式并直接运行）；
+或 `install\install_windows.bat`（自动绕过脚本执行策略、出错时窗口停留显示
+原因）；Linux 用 `install/install_linux.sh`。
 Linux 脚本会顺带写好 systemd 服务（含 `NoNewPrivileges`、`ProtectSystem`
 等基础加固，密钥通过 0600 的 `EnvironmentFile` 注入）。
 
@@ -227,28 +251,6 @@ pip install torch==2.14.0+cu130 --index-url https://download.pytorch.org/whl/cu1
 Windows 上 CUDA DLL 通常装不进系统 PATH —— 程序会自动把
 `site-packages/nvidia/*/bin` 与 `torch/lib` 加进 DLL 搜索目录，
 这也是 `CUDAExecutionProvider` 能否启用的关键。
-
-### 轮廓贴合：SAM 分割（真正的「PS 快速选择」）
-
-「遮罩形状 → 贴合部位轮廓」由 **SAM（Segment Anything）** 驱动：以检测框为提示，
-分割出部位的真实边界，只对轮廓内打码。
-
-为什么换掉 GrabCut：GrabCut 只认颜色分布，**部位与周围皮肤颜色相近时找不到
-边界，只能把整个检测框判成前景** —— 表现就是"怎么调都还是矩形"。SAM 是用
-上亿张图训练的分割模型，没有这个局限。实测同一个检测框：
-
-| 模式 | 遮到周围皮肤的像素 |
-|---|---|
-| 矩形 | 4001 px |
-| 轮廓贴合（SAM） | **0 px**（目标覆盖 98%） |
-
-见仓库根的 `sam-comparison.png`。
-
-- 模型约 358MB，存放在 `models/sam-vit-base/`；缺失时运行
-  `python tools/fetch_sam.py` 下载（自动走 hf-mirror）。
-- **没有模型也能跑**：SAM 不可用时自动退回 GrabCut，再退回矩形。
-- 每张图一次前向处理全部检测框（GPU 上约 0.2s）；用 `NSFW_SAM=0` 可关闭。
-- 合并/桥接区域（交合、口交的接触带）仍强制矩形 —— 缝隙正是要遮的部分。
 
 ### 轮廓贴合：SAM 分割（真正的「PS 快速选择」）
 
@@ -559,15 +561,14 @@ python tests/diagnose_segmentation.py
 ## 目录结构
 
 ```
-backend/
-  config.py     环境变量集中解析，所有默认值偏向安全一侧
-  security.py   密钥管理、常量时间比较、文件名白名单、HMAC 下载令牌
-  engines.py    NudeNet + ViT + OpenCV 打码
-  app.py        FastAPI 应用、路由、校验、清理任务
-frontend/       完全自包含的前端（无外部 CDN，可上严格 CSP）
-install/        Windows / Linux 安装脚本
-tests/          四个测试文件
-SECURITY.md     审计报告与逐项加固说明
+backend/          FastAPI 后端（config / security / engines / app）
+frontend/         完全自包含的前端（无外部 CDN，可上严格 CSP）
+desktop_app.py    Windows 桌面窗口入口（pywebview 壳）
+launcher.py       NSFW-Mask.exe 启动器源码（缺组件自动补装）
+install/          NSFW-Mask-Setup.exe 单文件安装器、安装脚本（Win/Linux）
+models/           AI 模型（SAM 等，缺失时可自动下载）
+tests/            四个测试文件
+SECURITY.md       审计报告与逐项加固说明
 ```
 
 ---
