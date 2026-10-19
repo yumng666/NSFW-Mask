@@ -103,6 +103,10 @@ if "%NSFW_NO_BROWSER%"=="0" (
 rem 640m 大模型存在时用 640 分辨率推理（按模型训练分辨率；320n 保持默认 320）
 if exist models\640m.onnx if not defined NSFW_DETECTOR_RESOLUTION set NSFW_DETECTOR_RESOLUTION=640
 
+rem 男性检出增强：候选下限与男性门槛降到检测下限（误检增多可用界面灵敏度调节）
+if not defined NSFW_DETECTOR_SCORE_FLOOR set NSFW_DETECTOR_SCORE_FLOOR=0.05
+if not defined NSFW_MG_THRESHOLD set NSFW_MG_THRESHOLD=0.05
+
 venv\Scripts\python.exe -m uvicorn backend.app:app --host %NSFW_HOST% --port %NSFW_PORT%
 
 echo.

@@ -31,6 +31,12 @@ os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--no-proxy-serve
 if os.path.exists(os.path.join(ROOT, "models", "640m.onnx")):
     os.environ.setdefault("NSFW_DETECTOR_RESOLUTION", "640")
 
+# 男性检出增强：候选下限与男性门槛降到检测下限，救回极低分检出。
+# 代价是误检增多 —— 界面灵敏度档位与手动涂抹可补救；已用
+# setdefault，用户显式设置的同名变量优先。
+os.environ.setdefault("NSFW_DETECTOR_SCORE_FLOOR", "0.05")
+os.environ.setdefault("NSFW_MG_THRESHOLD", "0.05")
+
 
 # pythonw（无控制台）下 sys.stdout/stderr 是 None，或从 GUI 启动器继承到
 # 无效句柄 —— 后端导入期的 print 会让进程静默崩溃。
