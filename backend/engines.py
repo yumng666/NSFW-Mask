@@ -1467,6 +1467,24 @@ def _bridge_to_face(
     return None
 
 
+_MALE_GENITAL_LABELS = {"MALE_GENITALIA_EXPOSED", "MALE_GENITALIA_COVERED"}
+_FEMALE_GENITAL_LABELS = {"FEMALE_GENITALIA_EXPOSED", "FEMALE_GENITALIA_COVERED"}
+
+
+def _pair_is_genital_cross(
+    labels: list[str] | None, members_a: list[int], members_b: list[int]
+) -> bool:
+    """两组成员是否为「男 + 女生殖器」组合（交合的强语义信号）。"""
+    if not labels:
+        return False
+    la = {labels[i] for i in members_a if i < len(labels)}
+    lb = {labels[i] for i in members_b if i < len(labels)}
+    return bool(
+        (la & _MALE_GENITAL_LABELS and lb & _FEMALE_GENITAL_LABELS)
+        or (la & _FEMALE_GENITAL_LABELS and lb & _MALE_GENITAL_LABELS)
+    )
+
+
 def _group_related(
     boxes: list[list[int]],
     faces: list[list[int]],
@@ -1480,6 +1498,12 @@ def _group_related(
     合并只在**异类**标签之间进行：男 + 女生殖器 = 交合，需要覆盖接触带；
     而**同类**相邻框（画面里有多个阴茎）是多个独立物体，各自走轮廓
     贴合才精准 —— 合并会把它们连成一大块矩形（实测回归）。
+
+    2026-10：骑乘位/种付位的男女生殖器框经常**分离**（视角遮挡，间隙
+    超过旧合并容差 0.55×短轴），导致接触带漏遮。对「男 + 女生殖器」
+    组合单独放宽合并容差到 1.6×短轴 —— 同图同时检出男女生殖器且距离
+    不远，交合的领域语义很强，放宽不会误并其他场景；其余异类组合维持
+    原容差不变。
     """
     regions: list[list] = [[list(b), [i], ""] for i, b in enumerate(boxes)]
 
@@ -1489,10 +1513,17 @@ def _group_related(
         merged = False
         for i in range(len(regions)):
             for j in range(i + 1, len(regions)):
-                if _boxes_related(regions[i][0], regions[j][0]) and _is_cross_type(
-                    regions[i][1], regions[j][1], labels
+                ri, rj = regions[i][0], regions[j][0]
+                cross = _is_cross_type(regions[i][1], regions[j][1], labels)
+                if not cross:
+                    continue
+                related = _boxes_related(ri, rj)
+                if not related and _pair_is_genital_cross(
+                    labels, regions[i][1], regions[j][1]
                 ):
-                    regions[i][0] = _union_box(regions[i][0], regions[j][0])
+                    related = _boxes_related(ri, rj, ratio=1.6)
+                if related:
+                    regions[i][0] = _union_box(ri, rj)
                     regions[i][1].extend(regions[j][1])
                     if not regions[i][2]:
                         regions[i][2] = "相邻部位已合并为同一遮罩区域"
