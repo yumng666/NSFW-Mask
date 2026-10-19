@@ -33,3 +33,4 @@ ui-test-screenshot.png
 models/
 *.onnx
 sam_test.png
+install/NSFW-Mask-Setup.exe
