@@ -115,9 +115,13 @@ def detect_gpu() -> bool:
     return bool(shutil.which("nvidia-smi"))
 
 
-def extract_program_files(target: str) -> None:
+def extract_program_files(target: str, include_640m: bool = False) -> None:
     log_ui(f"释放程序文件到 {target}")
-    for item in EMBED_ITEMS:
+    items = list(EMBED_ITEMS)
+    if include_640m:
+        # 640m 大模型内嵌在安装器里（选增强版才释放，体积 +99MB）
+        items.append(os.path.join("models", "640m.onnx"))
+    for item in items:
         src = os.path.join(RESOURCE_BASE, item)
         dst = os.path.join(target, item)
         if os.path.isdir(src):
@@ -126,7 +130,7 @@ def extract_program_files(target: str) -> None:
         else:
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
-    log_ui(f"程序文件释放完成（{len(EMBED_ITEMS)} 项）")
+    log_ui(f"程序文件释放完成（{len(items)} 项）")
 
 
 def create_shortcut(target: str) -> None:
@@ -204,10 +208,11 @@ class Api:
         webbrowser.open(PYTHON_DOWNLOAD)
 
     def start_install(self, gpu: bool = False, path: str = "", shortcut: bool = True,
-                      run_after: bool = True) -> str:
+                      run_after: bool = True, model: str = "320n") -> str:
         threading.Thread(
             target=_run_install,
-            args=(bool(gpu), path or TARGET, bool(shortcut), bool(run_after)),
+            args=(bool(gpu), path or TARGET, bool(shortcut), bool(run_after),
+                  model if model in ("320n", "640m") else "320n"),
             daemon=True,
         ).start()
         return "started"
@@ -217,9 +222,10 @@ class Api:
         return "ok"
 
 
-def _run_install(gpu: bool, target: str, shortcut: bool, run_after: bool) -> None:
+def _run_install(gpu: bool, target: str, shortcut: bool, run_after: bool,
+                 model: str = "320n") -> None:
     try:
-        _install(gpu, target, shortcut, run_after)
+        _install(gpu, model, target, shortcut, run_after)
     except Exception as exc:
         log_ui(f"安装失败：{exc}", "error")
         phase_ui("error", str(exc))
@@ -245,11 +251,80 @@ def _run_step(title: str, cmd: list[str], cwd: str | None = None) -> tuple[int, 
     return code, tail
 
 
-def _install(gpu: bool, target: str, shortcut: bool, run_after: bool) -> None:
+def _download_640m(target: str) -> bool:
+    """下载 640m.onnx（约 100 MB）到 <target>/models/。失败返回 False（降级 320n）。
+
+    多源轮询：GitHub 直连在部分网络下会被重定向到登录页（49KB HTML），
+    依次尝试官方源与加速镜像，用体积校验拦截坏响应。
+    """
+    import tempfile
+    import urllib.request
+
+    base = "https://github.com/notAI-tech/NudeNet/releases/download/v3.4-weights/640m.onnx"
+    url_list = [
+        base,
+        "https://ghproxy.net/" + base,
+        "https://gh-proxy.com/" + base,
+    ]
+    dest = os.path.join(target, "models", "640m.onnx")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    if os.path.exists(dest) and os.path.getsize(dest) > 10 * 1024 * 1024:
+        log_ui("640m 模型已存在，跳过下载", "ok")
+        return True
+
+    log_ui("$ 下载 640m.onnx（约 100 MB，取决于网络可能较慢）", "cmd")
+    total = 0
+    ok = False
+    final_tmp = None
+    for idx, url in enumerate(url_list):
+        tmp_path = None
+        try:
+            log_ui(f"  尝试下载源：{url.split('/')[2]}")
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) NSFW-Mask"}
+            )
+            tmp_path = os.path.join(target, "models", f".640m.part{idx}")
+            total = 0
+            with urllib.request.urlopen(req, timeout=60) as resp, open(tmp_path, "wb") as f:
+                while True:
+                    chunk = resp.read(1024 * 512)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    total += len(chunk)
+                    if total % (10 * 1024 * 1024) < 512 * 1024:
+                        log_ui(f"  已下载 {total / 1024 / 1024:.0f} MB")
+            if total < 10 * 1024 * 1024:
+                log_ui(f"  该源返回异常内容（{total} 字节），换下一个源…", "error")
+                os.unlink(tmp_path)
+                tmp_path = None
+                continue
+            ok = True
+            final_tmp = tmp_path
+            break
+        except Exception as exc:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+            log_ui(f"  该源失败：{exc}", "error")
+            continue
+    if not ok:
+        log_ui("640m 模型下载失败：所有下载源均不可用", "error")
+        log_ui("安装将继续使用 320n 轻量模型（功能完整，检出稍弱）。", "error")
+        log_ui("稍后可重新运行本安装器选择 640m，或手动下载 640m.onnx 放入 models\\ 目录。", "error")
+        return False
+    os.replace(final_tmp, dest)
+    log_ui(f"640m 模型下载完成（{total / 1024 / 1024:.0f} MB）", "ok")
+    return True
+
+
+def _install(gpu: bool, model: str, target: str, shortcut: bool, run_after: bool) -> None:
     os.makedirs(target, exist_ok=True)
 
     phase_ui("extract", "释放程序文件…")
-    extract_program_files(target)
+    extract_program_files(target, include_640m=(model == "640m"))
 
     py, ver = find_python()
     if not py:
@@ -278,6 +353,17 @@ def _install(gpu: bool, target: str, shortcut: bool, run_after: bool) -> None:
                                cwd=target)
         if code != 0:
             raise RuntimeError("依赖安装失败，pip 输出末尾：\n" + "\n".join(tail))
+
+    if model == "640m":
+        builtin = os.path.join(target, "models", "640m.onnx")
+        if os.path.exists(builtin) and os.path.getsize(builtin) > 10 * 1024 * 1024:
+            phase_ui("model", "检测模型：640m 增强版（安装器内置，无需下载）")
+            log_ui("已内置 640m 检测模型（约 99 MB），离线即用。", "ok")
+        else:
+            # 旧版安装器未内嵌时走网络下载兜底
+            phase_ui("model", "下载 640m 检测模型（约 100 MB，检出更强）…")
+            if not _download_640m(target):
+                log_ui("已降级为 320n 轻量模型（安装继续，不影响使用）。", "error")
 
     phase_ui("key", "生成 API 密钥…")
     key_script = (
@@ -366,6 +452,12 @@ PAGE = """<!DOCTYPE html>
       <span class="note" id="gpuNote"></span>
     </div>
     <div class="row" style="margin-top:10px">
+      <span style="font-size:14px;flex:none">检测模型：</span>
+      <button class="btn" id="btn320">320n 轻量版</button>
+      <button class="btn" id="btn640">640m 增强版</button>
+    </div>
+    <div class="note" style="margin-top:8px" id="modelDesc"></div>
+    <div class="row" style="margin-top:10px">
       <label class="chk"><input type="checkbox" id="chkShortcut" checked>创建桌面快捷方式</label>
       <label class="chk"><input type="checkbox" id="chkRun" checked>安装完成后立即运行</label>
     </div>
@@ -430,6 +522,23 @@ function highlight() {
   document.getElementById('btnCpu').style.background =
     chosenGpu === false ? '#16233f' : '#16233f';
 }
+let chosenModel = '320n';
+const MODEL_DESC = {
+  '320n': '320n 轻量版：即装即用、推理速度快；特写姿势（如口交）可能漏检，后续可随时升级。',
+  '640m': '640m 增强版：检出明显更强（特写姿势显著改善）；需额外下载约 100 MB 模型文件' +
+          '（GitHub 直连，网络不佳会自动降级为 320n），推理速度慢 2-3 倍。'
+};
+function modelHighlight() {
+  document.getElementById('btn320').style.borderColor =
+    chosenModel === '320n' ? '#2563eb' : '#2b426b';
+  document.getElementById('btn320').style.background =
+    chosenModel === '320n' ? '#16233f' : '#16233f';
+  document.getElementById('btn640').style.borderColor =
+    chosenModel === '640m' ? '#2563eb' : '#2b426b';
+  document.getElementById('btn640').style.background =
+    chosenModel === '640m' ? '#16233f' : '#16233f';
+  document.getElementById('modelDesc').textContent = MODEL_DESC[chosenModel] || '';
+}
 function pickDir() {
   pywebview.api.choose_dir().then((p) => {
     if (p) document.getElementById('installPath').value = p;
@@ -442,16 +551,21 @@ function beginInstall() {
   document.getElementById('btnInstall').disabled = true;
   document.getElementById('btnGpu').disabled = true;
   document.getElementById('btnCpu').disabled = true;
+  document.getElementById('btn320').disabled = true;
+  document.getElementById('btn640').disabled = true;
   const shortcut = document.getElementById('chkShortcut').checked;
   const runAfter = document.getElementById('chkRun').checked;
-  pywebview.api.start_install(chosenGpu, path, shortcut, runAfter);
+  pywebview.api.start_install(chosenGpu, path, shortcut, runAfter, chosenModel);
 }
 window.addEventListener('pywebviewready', async () => {
   const info = JSON.parse(await pywebview.api.env_check());
   document.getElementById('installPath').value = info.default_path;
   renderEnv(info);
+  modelHighlight();
   document.getElementById('btnGpu').onclick = () => { chosenGpu = true; highlight(); };
   document.getElementById('btnCpu').onclick = () => { chosenGpu = false; highlight(); };
+  document.getElementById('btn320').onclick = () => { chosenModel = '320n'; modelHighlight(); };
+  document.getElementById('btn640').onclick = () => { chosenModel = '640m'; modelHighlight(); };
   document.getElementById('btnInstall').onclick = beginInstall;
 });
 </script></body></html>"""
@@ -471,11 +585,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if AUTO:  # 无人值守自测：--auto gpu|cpu --root DIR [--no-shortcut] [--no-run]
+    if AUTO:  # 无人值守自测：--auto gpu|cpu --root DIR [--model 640m|320n] [--no-shortcut] [--no-run]
         gpu = "gpu" in sys.argv
         shortcut = "--no-shortcut" not in sys.argv
         run_after = "--no-run" not in sys.argv
-        print(f"[auto] target={TARGET} gpu={gpu}")
-        _run_install(gpu, TARGET, shortcut, run_after)
+        model = "640m" if "--model" in sys.argv and "640m" in sys.argv else "320n"
+        print(f"[auto] target={TARGET} gpu={gpu} model={model}")
+        _run_install(gpu, TARGET, shortcut, run_after, model)
         sys.exit(0)
     main()
