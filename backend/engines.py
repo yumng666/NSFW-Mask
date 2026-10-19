@@ -764,7 +764,16 @@ class ImageProcessor:
         if mask is None:
             # 矩形兜底。对打码工具来说"多遮一点"远比"漏掉"安全，
             # 所以分割失败时一律退回矩形，而不是什么都不遮。
-            mask = _rect_mask(roi.shape[:2], rect, padding)
+            # 倾斜部位升级：先尝试按框内边缘主轴估计旋转矩形（斜向 15°~75°
+            # 时明显比正框贴合），不可靠再退回轴对齐正框。
+            rot = None
+            if shape_mask:
+                rot = _rotated_rect_mask(roi.shape[:2], rect, roi, padding)
+            if rot is not None:
+                mask = rot
+                method = "rotrect"
+            else:
+                mask = _rect_mask(roi.shape[:2], rect, padding)
         elif padding > 0:
             # 轮廓模式下，扩张量作用在轮廓上，而不是把矩形撑大
             k = 2 * padding + 1
@@ -884,6 +893,44 @@ def _context_rect(
     if x2 <= x1 or y2 <= y1:
         return None
     return x1, y1, x2, y2
+
+
+def _rotated_rect_mask(
+    roi_shape: tuple, rect: list[int], roi: np.ndarray, padding: int
+) -> np.ndarray | None:
+    """分割失败时的兜底升级：对检测框内做边缘主轴估计，输出旋转矩形掩膜。
+
+    倾斜（斜向 15°~75°）的部位在轴对齐正框里只占一部分，正框会大量漏遮/
+    糊到周围 —— 用框内 Canny 边缘点集的 minAreaRect 估计部位主轴，按角度
+    旋转打码。以下情况返回 None（调用方退回轴对齐矩形）：
+      - 边缘点太少（<60）—— 框内几乎无结构；
+      - 主轴偏角 <12°（近水平，正框已足够贴合）或 >78°（近竖直，正框同样
+        贴合 —— 竖直长条本来就被轴对齐框包住）；
+      - minAreaRect 面积接近甚至超过轴对齐框（噪声导致无收益）。
+    """
+    x, y, w, h = rect
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 40, 120)
+    pts = cv2.findNonZero(edges[y : y + h, x : x + w])
+    if pts is None or len(pts) < 60:
+        return None
+    (cx, cy), (rw, rh), ang = cv2.minAreaRect(pts)
+    # minAreaRect 角度语义（OpenCV 4.5+：[-90, 0)）——换算出"主轴与水平的偏角"
+    if rw < rh:
+        ang += 90.0
+    tilt = abs(((ang + 45.0) % 90.0) - 45.0)
+    if tilt < 12 or tilt > 78:
+        return None
+    if rw * rh > 1.05 * w * h:
+        return None
+    rw2 = max(8, rw + 2 * padding)
+    rh2 = max(8, rh + 2 * padding)
+    poly = cv2.boxPoints(((cx, cy), (rw2, rh2), ang)).astype(np.int32)
+    poly[:, 0] = np.clip(poly[:, 0], 0, roi_shape[1] - 1)
+    poly[:, 1] = np.clip(poly[:, 1], 0, roi_shape[0] - 1)
+    mask = np.zeros(roi_shape[:2], np.uint8)
+    cv2.fillPoly(mask, [poly], 255)
+    return mask
 
 
 def _rect_mask(
@@ -1371,14 +1418,20 @@ def _union_box(a: list[int], b: list[int]) -> list[int]:
 
 
 def _bridge_to_face(
-    gen: list[int], face: list[int], max_ratio: float = 1.6
+    gen: list[int], face: list[int], max_ratio: float = 0.8
 ) -> list[int] | None:
     """把生殖器框向邻近的面部框延伸到其边缘，遮住两者之间的接触区域。
 
     口交、生殖器贴近面部的姿势里，模型经常检不出接触部位本身；
-    当生殖器确实被检出且与面部足够近时，把中间那段一起遮住。
+    当生殖器确实被检出且与面部**真正贴合**时，把中间那段一起遮住。
     只延伸到面部边缘为止，不进入面部内部 —— 面部本身不在打码范围。
-    间距超过自身尺寸的 max_ratio 倍视为不接触，返回 None。
+
+    2026-10 修复"掰开构图误触发、糊住大半身子"：
+      1) 间隙阈值从「长轴的 1.6 倍」收紧为「短轴的 0.8 倍」——真接触时
+         脸几乎贴着生殖器；掰开构图里生殖器与脸隔着大腿/腹部，间隙
+         明显更大，不再触发；
+      2) 桥接矩形宽度从「两框联合宽度」收窄为「两框平均宽度的 1.15 倍」
+         并以间隙区中心对齐 —— 只盖接触带，不再横跨整片。
     """
     gx1, gy1, gw, gh = gen
     gx2, gy2 = gx1 + gw, gy1 + gh
@@ -1386,29 +1439,31 @@ def _bridge_to_face(
     fx2, fy2 = fx1 + fw, fy1 + fh
 
     dx, dy = _box_gap(gen, face)
-    scale = max(gw, gh, 8)
+    scale = max(min(gw, gh), 8)          # 短轴：真接触时间隙相对短轴很小
     if dx > scale * max_ratio or dy > scale * max_ratio:
         return None
     if dx == 0 and dy == 0:
         return None                      # 已经重叠，无需延伸
 
-    left = min(gx1, fx1)
-    right = max(gx2, fx2)
-    top = min(gy1, fy1)
-    bottom = max(gy2, fy2)
+    band = int((gw + fw) / 2 * 1.15)     # 接触带宽度（竖向桥接时用）
+    band_h = int((gh + fh) / 2 * 1.15)   # 接触带高度（水平桥接时用）
 
     # 垂直方向更近：沿垂直方向桥接（口交通常是脸在上、生殖器在下）
     if dy >= dx:
+        cx_band = (max(gx1, fx1) + min(gx2, fx2)) // 2
+        x1 = cx_band - band // 2
         if fy2 <= gy1:                   # 面部在上方
-            return [left, fy2, right - left, gy2 - fy2]
+            return [x1, fy2, band, gy2 - fy2]
         if gy2 <= fy1:                   # 面部在下方
-            return [left, gy1, right - left, fy1 - gy1]
+            return [x1, gy1, band, fy1 - gy1]
         return None
     # 水平方向更近
+    cy_band = (max(gy1, fy1) + min(gy2, fy2)) // 2
+    y1 = cy_band - band_h // 2
     if fx2 <= gx1:                       # 面部在左侧
-        return [fx2, top, gx1 - fx2, bottom - top]
+        return [fx2, y1, gx1 - fx2, band_h]
     if gx2 <= fx1:                       # 面部在右侧
-        return [gx1, top, fx1 - gx1, bottom - top]
+        return [gx1, y1, fx1 - gx1, band_h]
     return None
 
 
