@@ -26,6 +26,11 @@ sys.path.insert(0, ROOT)
 # 系统代理可能拦截 127.0.0.1 导致窗口白屏 —— WebView2 强制直连本地服务
 os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "--no-proxy-server")
 
+# 检测模型自适应：存在 640m.onnx（按 640 训练）时自动用 640 分辨率推理，
+# 没有则保持默认 320（此时 640 输入会让 320n 漏检特写，绝不能盲设）。
+if os.path.exists(os.path.join(ROOT, "models", "640m.onnx")):
+    os.environ.setdefault("NSFW_DETECTOR_RESOLUTION", "640")
+
 
 # pythonw（无控制台）下 sys.stdout/stderr 是 None，或从 GUI 启动器继承到
 # 无效句柄 —— 后端导入期的 print 会让进程静默崩溃。

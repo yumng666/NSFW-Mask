@@ -100,6 +100,9 @@ if "%NSFW_NO_BROWSER%"=="0" (
   start "" /min powershell -NoProfile -WindowStyle Hidden -Command "for($i=0;$i -lt 600;$i++){try{$c=New-Object Net.Sockets.TcpClient;$c.Connect('127.0.0.1',%NSFW_PORT%);$c.Close();Start-Process '%APP_URL%';break}catch{Start-Sleep -Milliseconds 500}}"
 )
 
+rem 640m 大模型存在时用 640 分辨率推理（按模型训练分辨率；320n 保持默认 320）
+if exist models\640m.onnx if not defined NSFW_DETECTOR_RESOLUTION set NSFW_DETECTOR_RESOLUTION=640
+
 venv\Scripts\python.exe -m uvicorn backend.app:app --host %NSFW_HOST% --port %NSFW_PORT%
 
 echo.
