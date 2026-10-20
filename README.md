@@ -1,10 +1,20 @@
+<div align="center">
+
+<img src="frontend/favicon.svg" width="120" alt="NSFW Mask">
+
 # NSFW Mask（加固版）
 
-本地运行的图片内容审核与自动打码服务。基于上游
-[`lmx566/NSFW-Guard-Pro`](https://github.com/lmx566/NSFW-Guard-Pro) 重写，
-修复了其中的安全漏洞并收敛了不安全的默认配置。
+**本地运行的图片内容审核与自动打码服务**
 
-**图片全程不出本机**，推理使用两个本地模型，不调用任何云端 API。
+基于上游 [`lmx566/NSFW-Guard-Pro`](https://github.com/lmx566/NSFW-Guard-Pro) 重写，修复了其中的安全漏洞并收敛了不安全的默认配置。**图片全程不出本机**，推理使用两个本地模型，不调用任何云端 API。
+
+![release](https://img.shields.io/github/v/release/yumng666/NSFW-Mask?style=flat-square&color=2563eb)
+![downloads](https://img.shields.io/github/downloads/yumng666/NSFW-Mask/total?style=flat-square&color=059669)
+![stars](https://img.shields.io/github/stars/yumng666/NSFW-Mask?style=flat-square&color=f59e0b)
+
+📥 [下载客户端](https://github.com/yumng666/NSFW-Mask/releases/latest) · 💬 [反馈问题](https://github.com/yumng666/NSFW-Mask/issues)
+
+</div>
 
 **v2.1.0 起**：Windows 提供**桌面窗口应用**（双击即用，无需浏览器）与
 **单文件图形化安装器**（内置 320n/640m 检测模型可选），并新增 **Android
