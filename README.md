@@ -23,7 +23,7 @@
 
 > 漏洞详情、修复方案与验证记录见 [SECURITY.md](SECURITY.md)。
 > 如果你只想知道"上游有什么问题"，直接看那一份即可。
-<img width="1902" height="1281" alt="image" src="https://github.com/user-attachments/assets/a742e3a7-cc39-4f3a-a398-b42d6d20508f" />
+<img width="1902" height="1280" alt="6a9521f1d3c7de085af56e0c3d74986d" src="https://github.com/user-attachments/assets/675c6e66-cb06-418a-b9db-28a12a35e90e" />
 <img width="1902" height="1281" alt="image" src="https://github.com/user-attachments/assets/90fb32db-f386-4390-896b-fd2a98478ffa" />
 
 ---
