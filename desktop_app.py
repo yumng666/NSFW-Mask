@@ -65,15 +65,94 @@ def _safe_streams() -> None:
 _safe_streams()
 
 
+def _activate_existing_window() -> bool:
+    """找到已运行实例的主窗口并置前（已最小化则还原）。
+
+    第二次双击启动时调用：代替旧版的"已在运行"弹窗 —— 直接把用户
+    带回已经打开的那个窗口。窗口标题由 create_window 固定为 "NSFW Mask"。
+
+    Windows 有前台锁：后台进程的 SetForegroundWindow 可能被拒绝。
+    按 常规 → SwitchToThisWindow → AttachThreadInput 三级尝试，
+    仍失败则闪任务栏提示（FlashWindowEx）。
+    """
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    found: list[int] = []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def _enum_cb(hwnd, _lparam):
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length > 0:
+            buf = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buf, length + 1)
+            if buf.value.startswith("NSFW Mask"):
+                found.append(hwnd)
+        return True
+
+    try:
+        user32.EnumWindows(_enum_cb, 0)
+    except Exception:
+        return False
+    if not found:
+        return False
+    hwnd = found[0]
+
+    try:
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.ShowWindow(hwnd, 5)      # SW_SHOW
+        user32.SetForegroundWindow(hwnd)
+        user32.BringWindowToTop(hwnd)
+
+        # 一级：未抢到前台 → SwitchToThisWindow（无视前台锁的常用 API）
+        if user32.GetForegroundWindow() != hwnd:
+            try:
+                user32.SwitchToThisWindow(hwnd, True)
+            except Exception:
+                pass
+
+        # 二级：仍未抢到 → 附加到当前前台线程再置前
+        if user32.GetForegroundWindow() != hwnd:
+            fg = user32.GetForegroundWindow()
+            if fg:
+                tid_self = kernel32.GetCurrentThreadId()
+                tid_fg = user32.GetWindowThreadProcessId(fg, None)
+                if tid_fg and tid_fg != tid_self:
+                    user32.AttachThreadInput(tid_self, tid_fg, True)
+                    try:
+                        user32.SetForegroundWindow(hwnd)
+                    finally:
+                        user32.AttachThreadInput(tid_self, tid_fg, False)
+
+        # 兜底：闪任务栏（至少让用户注意到窗口在哪）
+        if user32.GetForegroundWindow() != hwnd:
+            class FLASHWINFO(ctypes.Structure):
+                _fields_ = [
+                    ("cbSize", ctypes.c_uint),
+                    ("hwnd", ctypes.c_void_p),
+                    ("dwFlags", ctypes.c_uint),
+                    ("uCount", ctypes.c_uint),
+                    ("dwTimeout", ctypes.c_uint),
+                ]
+
+            fi = FLASHWINFO(ctypes.sizeof(FLASHWINFO), hwnd, 0x3, 3, 0)  # FLASHW_ALL
+            user32.FlashWindowEx(ctypes.byref(fi))
+        return True
+    except Exception:
+        return False
+
+
 def _single_instance() -> None:
-    """Windows 命名互斥体：已有实例在跑时弹提示并退出，防止多开。"""
+    """Windows 命名互斥体：已有实例在跑时，把它的窗口调到前台并退出本实例。"""
     if sys.platform != "win32":
         return
     ctypes.windll.kernel32.CreateMutexW(None, False, "NSFW-Mask-Desktop-SingleInstance")
     if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-        ctypes.windll.user32.MessageBoxW(
-            0, "NSFW Mask 已经在运行（请查看任务栏窗口）。", "NSFW Mask", 0x40
-        )
+        if not _activate_existing_window():
+            # 窗口还没出现（对方仍在加载中）或找不到：简短提示后退出
+            ctypes.windll.user32.MessageBoxW(
+                0, "NSFW Mask 已经在运行（请查看任务栏窗口）。", "NSFW Mask", 0x40
+            )
         sys.exit(0)
 
 
