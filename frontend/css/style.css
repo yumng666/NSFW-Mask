@@ -19,7 +19,8 @@
    硬编码颜色（提示条、状态文字、标签等）。WebView2 / Android WebView
    都会让 prefers-color-scheme 跟随系统设置。 */
 @media (prefers-color-scheme: light) {
-  :root {
+  /* 手机端固定深色：<html data-fixed-dark> 时跳过整套浅色覆盖 */
+  :root:not([data-fixed-dark]) {
     --bg: #f4f7fb;
     --panel: #ffffff;
     --panel-2: #f8fafc;
@@ -34,12 +35,12 @@
     --warn: #b45309;
     --stage-bg: #e8edf5;
   }
-  .disclaimer { border-color: rgba(180, 83, 9, 0.35); background: rgba(234, 179, 8, 0.12); }
-  .pill.ok { background: rgba(22, 163, 74, 0.12); color: #15803d; border-color: #86efac; }
-  .pill.bad { background: rgba(220, 38, 38, 0.10); color: #b91c1c; border-color: #fca5a5; }
-  .status.error { color: #b91c1c; }
-  .status.busy { color: #1d4ed8; }
-  .queue-item .tag.ok { color: #15803d; }
+  html:not([data-fixed-dark]) .disclaimer { border-color: rgba(180, 83, 9, 0.35); background: rgba(234, 179, 8, 0.12); }
+  html:not([data-fixed-dark]) .pill.ok { background: rgba(22, 163, 74, 0.12); color: #15803d; border-color: #86efac; }
+  html:not([data-fixed-dark]) .pill.bad { background: rgba(220, 38, 38, 0.10); color: #b91c1c; border-color: #fca5a5; }
+  html:not([data-fixed-dark]) .status.error { color: #b91c1c; }
+  html:not([data-fixed-dark]) .status.busy { color: #1d4ed8; }
+  html:not([data-fixed-dark]) .queue-item .tag.ok { color: #15803d; }
 }
 
 * { box-sizing: border-box; }
