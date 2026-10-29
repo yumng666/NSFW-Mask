@@ -138,9 +138,12 @@
     syncStoredKey(currentKey());
   });
 
-  // 一键填写：从服务端读本机密钥。该端点只响应 127.0.0.1 的请求，
+  // 从服务端读本机密钥。该端点只响应 127.0.0.1 的请求，
   // 且服务默认只监听本机回环 —— 一旦改成对外监听，请在反代上封掉它。
-  keyFillBtn.addEventListener('click', async () => {
+  // auto=true 表示页面加载时的自动填入 —— 成功后隐藏密钥控件
+  // （桌面窗口/手机 App/本机浏览器都不需要用户看到这一排）；
+  // 失败则保持可见，作为浏览器远程访问时的手动入口。
+  async function fillKeyFromServer(auto) {
     try {
       const resp = await fetch('/api/local-key');
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -148,11 +151,18 @@
       if (!data.api_key) throw new Error('服务端没有密钥');
       apiKeyInput.value = data.api_key;
       syncStoredKey(currentKey());
-      setStatus(t('key_filled'), 'ok');
+      if (auto) {
+        const box = document.querySelector('.keybox');
+        if (box) box.classList.add('hide-key');
+      } else {
+        setStatus(t('key_filled'), 'ok');
+      }
     } catch (err) {
-      setStatus(t('key_fill_fail') + err.message, 'error');
+      if (!auto) setStatus(t('key_fill_fail') + err.message, 'error');
     }
-  });
+  }
+
+  keyFillBtn.addEventListener('click', () => fillKeyFromServer(false));
 
 
   // ---------------------------------------------------------------- 参数记忆
@@ -885,10 +895,11 @@
     }, 1200);
   });
 
-  // 打开页面时自动填写本机 API Key（等价于自动点一次"一键填写"），
-  // 按钮保留，方便手动重新获取。失败静默——状态栏不吵。
+  // 打开页面时自动填写本机 API Key（等价于自动点一次"一键填写"）。
+  // 桌面窗口 / 手机 App / 本机浏览器：填入成功后隐藏整排密钥控件；
+  // 远程访问等失败场景保持可见，按钮作为手动入口。失败静默——状态栏不吵。
   window.addEventListener('load', () => {
-    if (!apiKeyInput.value) keyFillBtn.click();
+    if (!apiKeyInput.value) fillKeyFromServer(true);
   });
 
   resetBtn.addEventListener('click', () => {

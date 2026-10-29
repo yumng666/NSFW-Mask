@@ -10,63 +10,7 @@
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div id="resize-hots" style="display:none">
-    <div class="rz rz-n"   onmousedown="resizeEdge(event,'top')"></div>
-    <div class="rz rz-s"   onmousedown="resizeEdge(event,'bottom')"></div>
-    <div class="rz rz-e"   onmousedown="resizeEdge(event,'right')"></div>
-    <div class="rz rz-w"   onmousedown="resizeEdge(event,'left')"></div>
-    <div class="rz rz-nw"  onmousedown="resizeEdge(event,'topleft')"></div>
-    <div class="rz rz-ne"  onmousedown="resizeEdge(event,'topright')"></div>
-    <div class="rz rz-sw"  onmousedown="resizeEdge(event,'bottomleft')"></div>
-    <div class="rz rz-se"  onmousedown="resizeEdge(event,'bottomright')"></div>
-  </div>
-  <style>
-    /* 桌面壳缩放热区：窗口四边/四角 6px，仅桌面壳环境显示 */
-    #resize-hots { position: fixed; inset: 0; pointer-events: none; z-index: 200; }
-    #resize-hots .rz { position: absolute; pointer-events: auto; }
-    .rz-n  { top:0; left:6px; right:6px; height:5px; cursor:ns-resize; }
-    .rz-s  { bottom:0; left:6px; right:6px; height:5px; cursor:ns-resize; }
-    .rz-e  { right:0; top:6px; bottom:6px; width:5px; cursor:ew-resize; }
-    .rz-w  { left:0; top:6px; bottom:6px; width:5px; cursor:ew-resize; }
-    .rz-nw { top:0; left:0; width:8px; height:8px; cursor:nwse-resize; }
-    .rz-ne { top:0; right:0; width:8px; height:8px; cursor:nesw-resize; }
-    .rz-sw { bottom:0; left:0; width:8px; height:8px; cursor:nesw-resize; }
-    .rz-se { bottom:0; right:0; width:8px; height:8px; cursor:nwse-resize; }
-  </style>
-  <style>
-    /* 桌面壳自绘标题栏：样式内嵌本页，不依赖外部 CSS（避免缓存不一致）。
-       position:fixed 使其钉在视口顶部，页面滚动时不被滑走；
-       body.has-titlebar 由 JS 在桌面壳环境下添加，为固定栏让出顶部空间。 */
-    #titlebar { height: 38px; display: none; align-items: stretch;
-                background: #0b1120; user-select: none;
-                position: fixed; top: 0; left: 0; right: 0; z-index: 100; }
-    body.has-titlebar { padding-top: 38px !important; }
-    #titlebar .tb-drag { flex: 1; display: flex; align-items: center;
-                         padding: 0 14px; font-size: 13px; color: #94a3b8; }
-    #titlebar .tb-drag .tb-sub { color: #64748b; margin-left: 6px; font-size: 11px; }
-    #titlebar .tb-btns { display: flex; height: 100%; }
-    #titlebar .tb-btns button { width: 46px; height: 100%; border: 0;
-                                background: transparent; color: #94a3b8;
-                                font-size: 13px; cursor: pointer; }
-    #titlebar .tb-btns button:hover { background: #1e293b; color: #e2e8f0; }
-    #titlebar .tb-btns button.tb-close:hover { background: #dc2626; color: #fff; }
-  </style>
-  <div id="titlebar">
-    <div class="tb-drag pywebview-drag-region"><span id="tbStatus">NSFW Mask</span> <span class="tb-sub">by yumng</span></div>
-    <div class="tb-btns">
-      <button type="button" title="最小化" onclick="try{pywebview.api.win('minimize')}catch(e){tbErr(e)}">&#x2500;</button>
-      <button type="button" title="最大化 / 还原" onclick="try{pywebview.api.win('toggle_max')}catch(e){tbErr(e)}">&#x25A1;</button>
-      <button type="button" class="tb-close" title="关闭" onclick="try{pywebview.api.win('close')}catch(e){tbErr(e)}">&#x2715;</button>
-    </div>
-  </div>
-  <script>
-  function tbErr(e) {
-    var d = document.getElementById('tbStatus');
-    if (d) d.textContent = '按钮错误: ' + e.message;
-  }
-  </script>
-
-<header class="topbar">
+  <header class="topbar">
   <div class="brand">
     <img class="logo" src="/favicon.svg" alt="">
     <div>
@@ -82,15 +26,15 @@
       <option value="en">English</option>
       <option value="ja">日本語</option>
     </select>
-    <label for="apiKeyInput">API Key</label>
-    <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false"
+    <label for="apiKeyInput" class="key-only">API Key</label>
+    <input id="apiKeyInput" type="password" autocomplete="off" spellcheck="false" class="key-only"
            data-i18n-placeholder="key_placeholder" placeholder="粘贴 data/api_key 中的内容">
-    <label class="remember" data-i18n-title="remember_title" title="勾选后密钥会保存在本机浏览器里，下次自动填好">
+    <label class="remember key-only" data-i18n-title="remember_title" title="勾选后密钥会保存在本机浏览器里，下次自动填好">
       <input type="checkbox" id="rememberKey">
       <span data-i18n="remember">记住</span>
     </label>
-    <button id="keyFillBtn" type="button" class="ghost-btn" data-i18n-title="key_fill_title" data-i18n="key_fill" title="从 data/api_key 读出密钥自动填入">一键填写</button>
-    <button id="keySaveBtn" type="button" class="ghost-btn" data-i18n="save">保存</button>
+    <button id="keyFillBtn" type="button" class="ghost-btn key-only" data-i18n-title="key_fill_title" data-i18n="key_fill" title="从 data/api_key 读出密钥自动填入">一键填写</button>
+    <button id="keySaveBtn" type="button" class="ghost-btn key-only" data-i18n="save">保存</button>
   </div>
 </header>
 
