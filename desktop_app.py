@@ -342,7 +342,27 @@ def main() -> None:
             print(traceback.format_exc())
 
     def _start_backend() -> None:
-        # GUI 就绪后再起后端线程：避免 .NET/clr（winforms）初始化与
+        # GUI 就绪：消除启动阶段的白边（WebView2 绘制前显示自身默认白底 /
+        # 外层 Form 默认浅灰）。两层都染成主题深蓝。
+        try:
+            import clr
+
+            clr.AddReference("System.Drawing")
+            from System.Drawing import Color
+
+            dark = Color.FromArgb(0x13, 0x1C, 0x31)
+            view = webview.windows[0].native            # BrowserView (UserControl)
+            form = getattr(view, "Parent", None) if view is not None else None
+            if form is not None:
+                form.BackColor = dark
+            browser = getattr(view, "browser", None)    # pywebview browser 包装
+            wv = getattr(browser, "webview", None)      # WebView2 .NET 控件
+            if wv is not None:
+                wv.DefaultBackgroundColor = dark
+            print("[desktop] window backdrop set", flush=True)
+        except Exception as exc:
+            print(f"[desktop] backdrop set failed: {exc!r}", flush=True)
+        # 后端线程在 GUI 就绪后再起：避免 .NET/clr（winforms）初始化与
         # torch CUDA DLL 加载并发，偶发 "System.Windows.Forms 未找到" 崩溃
         threading.Thread(target=backend, daemon=True).start()
 

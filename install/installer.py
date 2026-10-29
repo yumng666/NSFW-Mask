@@ -615,7 +615,27 @@ def main() -> None:
         background_color="#0f172a",
     )
     _dress_titlebar()
-    webview.start(private_mode=False)
+
+    def _polish() -> None:
+        # 消除启动阶段白边：Form 背景 + WebView2 默认底色都染成主题深蓝
+        try:
+            import clr
+
+            clr.AddReference("System.Drawing")
+            from System.Drawing import Color
+
+            dark = Color.FromArgb(0x13, 0x1C, 0x31)
+            view = webview.windows[0].native
+            form = getattr(view, "Parent", None) if view is not None else None
+            if form is not None:
+                form.BackColor = dark
+            wv = getattr(getattr(view, "browser", None), "webview", None)
+            if wv is not None:
+                wv.DefaultBackgroundColor = dark
+        except Exception:
+            pass
+
+    webview.start(func=_polish, private_mode=False)
 
 
 if __name__ == "__main__":

@@ -333,69 +333,20 @@ class LocalNudeNetDetector(BaseDetector):
 
 
 class LocalNSFWClassifier:
-    """ViT 整图分类，给出 normal / nsfw 等标签的概率。"""
+    """ViT 整图分类 —— 已按需求禁用（2026-10 起不再使用）。
+
+    保留空实现只为兼容既有调用方：不加载模型、不推理，scores 恒为空。
+    整图分类此前用于"高置信干净则放行模糊区域"的防误杀逻辑；禁用后
+    所有检出统一按灵敏度门槛与部位专属门槛判定。
+    """
 
     def __init__(self, model_name: str | None = None) -> None:
         self.classifier = None
         self.device = "cpu"
-        if pipeline is None:
-            print("[Classifier] 未安装 torch/transformers，分类功能不可用。")
-            return
-        try:
-            if torch is not None and torch.cuda.is_available():
-                self.device = "cuda"
-            # 原版漏传 device，导致 GPU 实际上从未被使用
-            device_arg = 0 if self.device == "cuda" else -1
-            if config.DEVICE == "cuda" and self.device != "cuda":
-                raise RuntimeError(
-                    "NSFW_DEVICE=cuda 但当前 torch 不支持 CUDA。"
-                    "请安装 CUDA 版 PyTorch："
-                    "pip install torch==2.14.0+cu130 --index-url"
-                    " https://download.pytorch.org/whl/cu130，"
-                    "或改用 NSFW_DEVICE=auto。"
-                )
-            self.classifier = pipeline(
-                "image-classification",
-                model=model_name or config.CLASSIFIER_MODEL,
-                device=device_arg,
-            )
-            print(
-                f"[Classifier] 已加载 {model_name or config.CLASSIFIER_MODEL}"
-                f"（{self.device}）"
-            )
-        except Exception as exc:
-            # 模型加载失败是**可接受**的降级路径，不是致命错误：
-            # 打码功能只依赖 NudeNet 检测器，照常工作。
-            # 但报错原文（例如 "not a valid JSON file"）对使用者毫无指向性，
-            # 这里补上具体原因和排查步骤。
-            print("[Classifier] 模型加载失败，将退化为「仅检测器」模式，打码功能不受影响。")
-            print(f"[Classifier] 原因: {exc}")
-            print("[Classifier] 排查建议：")
-            print("  1) 首次运行需要访问 HuggingFace 下载约 340 MB 权重。")
-            print("     国内网络直连通常失败，请设置 HF_ENDPOINT=https://hf-mirror.com 后重启。")
-            print("  2) 若之前下载被中断过，缓存里会残留损坏文件，导致后续启动")
-            print("     报出与真实原因无关的 JSON 解析错误。删除该缓存目录后重试：")
-            print(f"     {_hf_hub_cache_dir()}")
-            print("  3) 也可以先用 NSFW_CLASSIFIER_MODEL 指向本地已下载好的模型目录。")
+        print("[Classifier] 已禁用（不加载 ViT 整图分类器，scores 恒为空）")
 
     def classify(self, image_path: str) -> list[dict]:
-        if not self.classifier:
-            return []
-        try:
-            results = self.classifier(image_path) or []
-        except Exception as exc:
-            print(f"[Classifier] 推理失败: {exc}")
-            return []
-
-        out: list[dict] = []
-        for item in results:
-            try:
-                out.append(
-                    {"label": str(item["label"]), "score": float(item["score"])}
-                )
-            except (KeyError, TypeError, ValueError):
-                continue
-        return out
+        return []
 
 
 class ImageProcessor:
