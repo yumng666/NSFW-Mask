@@ -2,7 +2,7 @@
 
 <img src="frontend/favicon.svg" width="120" alt="NSFW Mask">
 
-# NSFW Mask（加固版）
+# NSFW Mask
 
 **本地运行的图片内容审核与自动打码服务**
 
