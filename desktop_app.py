@@ -177,6 +177,10 @@ LOADING_HTML = """<!DOCTYPE html>
   h1 { font-size:22px; font-weight:500; margin:0; }
   h1 span { color:#94a3b8; font-size:14px; margin-left:8px; }
   p { color:#94a3b8; font-size:13px; margin:0; }
+  @media (prefers-color-scheme: light) {
+    body { background:#f4f7fb; color:#1e293b; }
+    h1 span, p { color:#64748b; }
+  }
 </style></head><body>
   <div class="logo"><i></i><i></i><i></i></div>
   <h1>NSFW Mask<span>by yumng</span></h1>
@@ -251,12 +255,41 @@ def _set_window_icon(window) -> None:
     threading.Thread(target=try_set, daemon=True).start()
 
 
-def _dress_titlebar(delay: float = 0.4) -> None:
-    """把系统标题栏染成与深色主题一致的夜蓝色（Win11 22H2+，失败自动忽略）。
+def _system_is_light() -> bool:
+    """读取系统"应用主题"：True = 浅色模式。失败时按深色处理。"""
+    try:
+        import winreg
 
-    系统浅色/深色模式下标题栏都是黑/白，和页面主题不搭 —— 与 tag-pot
-    项目一致，用 DWM 直接指定标题栏底色与文字色。颜色是 COLORREF
-    （0x00BBGGRR）：底色 #131C31 → 0x00311C13，文字 #E8EEF8 → 0x00F8EEE8。
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        )
+        try:
+            val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return bool(val)
+        finally:
+            key.Close()
+    except Exception:
+        return False
+
+
+def _theme_colors() -> tuple[int, int]:
+    """返回 (窗口底色的 COLORREF, 系统主题是否深色)。
+
+    浅色主题 #F4F7FB，深色主题 #131C31（COLORREF = 0x00BBGGRR）。
+    """
+    if _system_is_light():
+        return 0x00FBF7F4, 0          # #F4F7FB
+    return 0x00311C13, 1              # #131C31
+
+
+def _dress_titlebar(delay: float = 0.4) -> None:
+    """标题栏跟随系统深浅色（不再自定义颜色）。
+
+    之前用 DWMWA_CAPTION_COLOR 把标题栏染成主题蓝，但 Win11 25H2 会在
+    窗口最外缘画一圈压不掉的系统描边（就是用户看到的"白边"，且该版本
+    DWMWA_BORDER_COLOR 实测不生效）。改为让系统按深浅色模式原生绘制
+    标题栏（深色=深灰、浅色=白），配合页面主题自动跟随 —— 无白边。
     """
     title = "NSFW Mask by yumng"
 
@@ -273,24 +306,21 @@ def _dress_titlebar(delay: float = 0.4) -> None:
             if not hwnd:
                 return
 
-            def setv(attr: int, val: int) -> None:
-                v = ctypes.c_int(val)
-                dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(v), 4)
+            def apply() -> None:
+                # 20 = DWMWA_USE_IMMERSIVE_DARK_MODE：1 深色标题栏 / 0 浅色
+                _, dark = _theme_colors()
+                v = ctypes.c_int(1 if dark else 0)
+                dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), 20, ctypes.byref(v), 4)
+                # 清掉之前版本可能残留的自定义色，恢复系统绘制
+                for attr, val in ((35, 0xFFFFFFFF), (36, 0xFFFFFFFF), (34, 0xFFFFFFFF)):
+                    v2 = ctypes.c_int(val)
+                    dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(v2), 4)
 
-            setv(20, 0)             # 关闭系统深色标题栏（改用自定义颜色）
-            setv(34, 0xFFFFFFFE)    # 不绘制边框（DWMWA_COLOR_NONE）
-            setv(35, 0x00311C13)    # 标题栏底色 #131C31
-            setv(36, 0x00F8EEE8)    # 标题文字 #E8EEF8
-
-            # Win11 在窗口激活/失焦时会用系统强调色重画一圈描边
-            # （用户看到的下/左/右"白边"），把我们设的 NONE 覆盖掉。
-            # 周期性重设（3 个轻量 API，幂等），点击窗口后也不会再出现。
+            apply()
+            # 系统切换深浅色时同步标题栏
             while True:
                 time.sleep(2.0)
-                setv(20, 0)
-                setv(34, 0xFFFFFFFE)
-                setv(35, 0x00311C13)
-                setv(36, 0x00F8EEE8)
+                apply()
         except Exception:
             pass
 
@@ -310,7 +340,7 @@ def main() -> None:
         width=1280,
         height=860,
         min_size=(960, 640),
-        background_color="#0f172a",
+        background_color="#f4f7fb" if _system_is_light() else "#0f172a",
     )
     _dress_titlebar()
 
@@ -364,20 +394,31 @@ def main() -> None:
                 from System.Drawing import Color
                 import System.Windows.Forms as WF
 
-                dark = Color.FromArgb(0x13, 0x1C, 0x31)
                 view = webview.windows[0].native   # BrowserForm（顶层窗口）
                 print(f"[desktop] native={type(view).__name__}", flush=True)
-                if view is not None:
-                    view.BackColor = dark          # 顶层窗口底色（消边缘灰带）
-                    try:
-                        view.Padding = WF.Padding(0)
-                    except Exception:
-                        pass
-                    print(f"[desktop] form_bg={view.BackColor}", flush=True)
-                # WebView2 的 DefaultBackgroundColor 只能在 UI 线程设置；
-                # 首次绘制前显示的是 LOADING_HTML（本身已是深色），无需额外处理。
+                if view is None:
+                    return
+                try:
+                    view.Padding = WF.Padding(0)
+                except Exception:
+                    pass
+                last_light = None
+                while True:
+                    light = _system_is_light()
+                    if last_light is None or light != last_light:
+                        if light:
+                            bg = Color.FromArgb(0xF4, 0xF7, 0xFB)
+                        else:
+                            bg = Color.FromArgb(0x13, 0x1C, 0x31)
+                        try:
+                            view.BackColor = bg
+                            last_light = light
+                            print(f"[desktop] form_bg={view.BackColor}", flush=True)
+                        except Exception as exc:
+                            print(f"[desktop] backdrop set failed: {exc!r}", flush=True)
+                    time.sleep(2.0)
             except Exception as exc:
-                print(f"[desktop] backdrop set failed: {exc!r}", flush=True)
+                print(f"[desktop] polish failed: {exc!r}", flush=True)
 
         threading.Thread(target=_polish_window, daemon=True).start()
         # 后端线程在 GUI 就绪后再起：避免 .NET/clr（winforms）初始化与

@@ -14,6 +14,32 @@
   --radius: 12px;
 }
 
+/* 跟随系统浅色模式：深色为默认主题，浅色模式下覆盖变量与深色专用的
+   硬编码颜色（提示条、状态文字、标签等）。WebView2 / Android WebView
+   都会让 prefers-color-scheme 跟随系统设置。 */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f7fb;
+    --panel: #ffffff;
+    --panel-2: #f8fafc;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text: #1e293b;
+    --text-dim: #64748b;
+    --accent: #2563eb;
+    --accent-soft: rgba(37, 99, 235, 0.10);
+    --danger: #dc2626;
+    --ok: #16a34a;
+    --warn: #b45309;
+  }
+  .disclaimer { border-color: rgba(180, 83, 9, 0.35); background: rgba(234, 179, 8, 0.12); }
+  .pill.ok { background: rgba(22, 163, 74, 0.12); color: #15803d; border-color: #86efac; }
+  .pill.bad { background: rgba(220, 38, 38, 0.10); color: #b91c1c; border-color: #fca5a5; }
+  .status.error { color: #b91c1c; }
+  .status.busy { color: #1d4ed8; }
+  .queue-item .tag.ok { color: #15803d; }
+}
+
 * { box-sizing: border-box; }
 
 html, body {

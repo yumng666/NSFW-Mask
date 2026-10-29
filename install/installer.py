@@ -594,17 +594,12 @@ def _dress_titlebar(delay: float = 0.4) -> None:
                 v = ctypes.c_int(val)
                 dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(v), 4)
 
-            setv(20, 0)             # 关闭系统深色标题栏（改用自定义颜色）
-            setv(34, 0xFFFFFFFE)    # 不绘制窗口边框（DWMWA_COLOR_NONE，消白边）
-            setv(35, 0x00311C13)    # 标题栏底色 #131C31
-            setv(36, 0x00F8EEE8)    # 标题文字 #E8EEF8
-            # 窗口激活时 Win11 会用强调色重画描边，周期性重设覆盖掉
+            # 安装向导页固定深色 —— 标题栏用系统深色模式（原生绘制，
+            # 无自定义颜色，避免 Win11 25H2 的窗口外缘描边）
+            setv(20, 1)
             while True:
                 time.sleep(2.0)
-                setv(20, 0)
-                setv(34, 0xFFFFFFFE)
-                setv(35, 0x00311C13)
-                setv(36, 0x00F8EEE8)
+                setv(20, 1)
         except Exception:
             pass
 
