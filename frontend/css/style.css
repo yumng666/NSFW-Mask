@@ -58,6 +58,9 @@ p { margin: 0 0 8px; }
 .tagline { margin: 0; font-size: 12px; color: var(--text-dim); }
 
 .keybox { display: flex; align-items: center; gap: 8px; }
+/* 自动填入密钥成功后隐藏密钥相关控件（双端极简界面）。
+   浏览器远程访问等自动填入失败时保持可见，作为手动入口。 */
+.keybox.hide-key .key-only { display: none; }
 .keybox label { font-size: 12px; color: var(--text-dim); }
 
 .keybox input {
