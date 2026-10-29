@@ -595,9 +595,16 @@ def _dress_titlebar(delay: float = 0.4) -> None:
                 dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(v), 4)
 
             setv(20, 0)             # 关闭系统深色标题栏（改用自定义颜色）
-            setv(34, 0x00311C13)    # 窗口边框 #131C31（避免浅色模式白边）
+            setv(34, 0xFFFFFFFE)    # 不绘制窗口边框（DWMWA_COLOR_NONE，消白边）
             setv(35, 0x00311C13)    # 标题栏底色 #131C31
             setv(36, 0x00F8EEE8)    # 标题文字 #E8EEF8
+            # 窗口激活时 Win11 会用强调色重画描边，周期性重设覆盖掉
+            while True:
+                time.sleep(2.0)
+                setv(20, 0)
+                setv(34, 0xFFFFFFFE)
+                setv(35, 0x00311C13)
+                setv(36, 0x00F8EEE8)
         except Exception:
             pass
 
@@ -617,23 +624,29 @@ def main() -> None:
     _dress_titlebar()
 
     def _polish() -> None:
-        # 消除启动阶段白边：Form 背景 + WebView2 默认底色都染成主题深蓝
-        try:
-            import clr
+        # native 此时可能还是 None（窗口未创建完）：延迟设置顶层窗口底色
+        def _apply() -> None:
+            time.sleep(1.2)
+            try:
+                import clr
 
-            clr.AddReference("System.Drawing")
-            from System.Drawing import Color
+                clr.AddReference("System.Drawing")
+                clr.AddReference("System.Windows.Forms")
+                from System.Drawing import Color
+                import System.Windows.Forms as WF
 
-            dark = Color.FromArgb(0x13, 0x1C, 0x31)
-            view = webview.windows[0].native
-            form = getattr(view, "Parent", None) if view is not None else None
-            if form is not None:
-                form.BackColor = dark
-            wv = getattr(getattr(view, "browser", None), "webview", None)
-            if wv is not None:
-                wv.DefaultBackgroundColor = dark
-        except Exception:
-            pass
+                dark = Color.FromArgb(0x13, 0x1C, 0x31)
+                view = webview.windows[0].native   # BrowserForm（顶层窗口）
+                if view is not None:
+                    view.BackColor = dark
+                    try:
+                        view.Padding = WF.Padding(0)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        threading.Thread(target=_apply, daemon=True).start()
 
     webview.start(func=_polish, private_mode=False)
 

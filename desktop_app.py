@@ -278,9 +278,19 @@ def _dress_titlebar(delay: float = 0.4) -> None:
                 dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(v), 4)
 
             setv(20, 0)             # 关闭系统深色标题栏（改用自定义颜色）
-            setv(34, 0x00311C13)    # 窗口边框 #131C31（否则浅色模式下露出白边）
+            setv(34, 0xFFFFFFFE)    # 不绘制边框（DWMWA_COLOR_NONE）
             setv(35, 0x00311C13)    # 标题栏底色 #131C31
             setv(36, 0x00F8EEE8)    # 标题文字 #E8EEF8
+
+            # Win11 在窗口激活/失焦时会用系统强调色重画一圈描边
+            # （用户看到的下/左/右"白边"），把我们设的 NONE 覆盖掉。
+            # 周期性重设（3 个轻量 API，幂等），点击窗口后也不会再出现。
+            while True:
+                time.sleep(2.0)
+                setv(20, 0)
+                setv(34, 0xFFFFFFFE)
+                setv(35, 0x00311C13)
+                setv(36, 0x00F8EEE8)
         except Exception:
             pass
 
@@ -342,26 +352,34 @@ def main() -> None:
             print(traceback.format_exc())
 
     def _start_backend() -> None:
-        # GUI 就绪：消除启动阶段的白边（WebView2 绘制前显示自身默认白底 /
-        # 外层 Form 默认浅灰）。两层都染成主题深蓝。
-        try:
-            import clr
+        # 注意：start 回调触发时 window.native 可能还没挂上（None），
+        # 需要等窗口创建完成后再设置背景/布局。
+        def _polish_window() -> None:
+            time.sleep(1.5)
+            try:
+                import clr
 
-            clr.AddReference("System.Drawing")
-            from System.Drawing import Color
+                clr.AddReference("System.Drawing")
+                clr.AddReference("System.Windows.Forms")
+                from System.Drawing import Color
+                import System.Windows.Forms as WF
 
-            dark = Color.FromArgb(0x13, 0x1C, 0x31)
-            view = webview.windows[0].native            # BrowserView (UserControl)
-            form = getattr(view, "Parent", None) if view is not None else None
-            if form is not None:
-                form.BackColor = dark
-            browser = getattr(view, "browser", None)    # pywebview browser 包装
-            wv = getattr(browser, "webview", None)      # WebView2 .NET 控件
-            if wv is not None:
-                wv.DefaultBackgroundColor = dark
-            print("[desktop] window backdrop set", flush=True)
-        except Exception as exc:
-            print(f"[desktop] backdrop set failed: {exc!r}", flush=True)
+                dark = Color.FromArgb(0x13, 0x1C, 0x31)
+                view = webview.windows[0].native   # BrowserForm（顶层窗口）
+                print(f"[desktop] native={type(view).__name__}", flush=True)
+                if view is not None:
+                    view.BackColor = dark          # 顶层窗口底色（消边缘灰带）
+                    try:
+                        view.Padding = WF.Padding(0)
+                    except Exception:
+                        pass
+                    print(f"[desktop] form_bg={view.BackColor}", flush=True)
+                # WebView2 的 DefaultBackgroundColor 只能在 UI 线程设置；
+                # 首次绘制前显示的是 LOADING_HTML（本身已是深色），无需额外处理。
+            except Exception as exc:
+                print(f"[desktop] backdrop set failed: {exc!r}", flush=True)
+
+        threading.Thread(target=_polish_window, daemon=True).start()
         # 后端线程在 GUI 就绪后再起：避免 .NET/clr（winforms）初始化与
         # torch CUDA DLL 加载并发，偶发 "System.Windows.Forms 未找到" 崩溃
         threading.Thread(target=backend, daemon=True).start()
