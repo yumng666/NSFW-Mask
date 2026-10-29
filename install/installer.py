@@ -11,12 +11,14 @@ Unattended self-test mode:
 """
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 
 import webview
@@ -571,6 +573,36 @@ window.addEventListener('pywebviewready', async () => {
 </script></body></html>"""
 
 
+def _dress_titlebar(delay: float = 0.4) -> None:
+    """把安装向导的标题栏染成深色主题色（与桌面端一致；Win11 22H2+）。"""
+    title = "NSFW Mask 安装向导"
+
+    def run() -> None:
+        try:
+            u32 = ctypes.windll.user32
+            dwm = ctypes.windll.dwmapi
+            hwnd = 0
+            for _ in range(12):
+                time.sleep(delay)
+                hwnd = u32.FindWindowW(None, title)
+                if hwnd:
+                    break
+            if not hwnd:
+                return
+
+            def setv(attr: int, val: int) -> None:
+                v = ctypes.c_int(val)
+                dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(v), 4)
+
+            setv(20, 0)             # 关闭系统深色标题栏（改用自定义颜色）
+            setv(35, 0x00311C13)    # 标题栏底色 #131C31
+            setv(36, 0x00F8EEE8)    # 标题文字 #E8EEF8
+        except Exception:
+            pass
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def main() -> None:
     webview.create_window(
         "NSFW Mask 安装向导",
@@ -581,6 +613,7 @@ def main() -> None:
         min_size=(660, 560),
         background_color="#0f172a",
     )
+    _dress_titlebar()
     webview.start(private_mode=False)
 
 

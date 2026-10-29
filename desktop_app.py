@@ -37,6 +37,10 @@ if os.path.exists(os.path.join(ROOT, "models", "640m.onnx")):
 os.environ.setdefault("NSFW_DETECTOR_SCORE_FLOOR", "0.05")
 os.environ.setdefault("NSFW_MG_THRESHOLD", "0.05")
 
+# ViT 分类器首次运行需从 HuggingFace 下载约 340 MB —— 国内直连通常失败，
+# 与 start.bat 保持一致默认走镜像（用户可用环境变量覆盖）。
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 
 # pythonw（无控制台）下 sys.stdout/stderr 是 None，或从 GUI 启动器继承到
 # 无效句柄 —— 后端导入期的 print 会让进程静默崩溃。
@@ -247,6 +251,41 @@ def _set_window_icon(window) -> None:
     threading.Thread(target=try_set, daemon=True).start()
 
 
+def _dress_titlebar(delay: float = 0.4) -> None:
+    """把系统标题栏染成与深色主题一致的夜蓝色（Win11 22H2+，失败自动忽略）。
+
+    系统浅色/深色模式下标题栏都是黑/白，和页面主题不搭 —— 与 tag-pot
+    项目一致，用 DWM 直接指定标题栏底色与文字色。颜色是 COLORREF
+    （0x00BBGGRR）：底色 #131C31 → 0x00311C13，文字 #E8EEF8 → 0x00F8EEE8。
+    """
+    title = "NSFW Mask by yumng"
+
+    def run() -> None:
+        try:
+            u32 = ctypes.windll.user32
+            dwm = ctypes.windll.dwmapi
+            hwnd = 0
+            for _ in range(12):          # 等窗口创建出来，最多约 5 秒
+                time.sleep(delay)
+                hwnd = u32.FindWindowW(None, title)
+                if hwnd:
+                    break
+            if not hwnd:
+                return
+
+            def setv(attr: int, val: int) -> None:
+                v = ctypes.c_int(val)
+                dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(v), 4)
+
+            setv(20, 0)             # 关闭系统深色标题栏（改用自定义颜色）
+            setv(35, 0x00311C13)    # 标题栏底色 #131C31
+            setv(36, 0x00F8EEE8)    # 标题文字 #E8EEF8
+        except Exception:
+            pass
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def main() -> None:
     import webview  # 轻量导入；重型的 backend 留到后台线程
 
@@ -262,6 +301,7 @@ def main() -> None:
         min_size=(960, 640),
         background_color="#0f172a",
     )
+    _dress_titlebar()
 
     def backend() -> None:
         try:

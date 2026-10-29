@@ -217,9 +217,10 @@
   </div>
 
   <div class="actions">
-    <a id="downloadBtn" class="primary-btn" href="#" download data-i18n="download">下载打码结果</a>
-    <button id="downloadAllBtn" class="primary-btn" type="button" data-i18n="download_all">下载全部打码结果</button>
-    <button id="resetBtn" type="button" class="ghost-btn" data-i18n="start_over">清空重来</button>
+    <!-- 下载按钮按需求隐藏（元素保留，避免 JS 引用中断）；结果文件仍在 output/ 目录 -->
+    <a id="downloadBtn" class="primary-btn hidden" href="#" download data-i18n="download">下载打码结果</a>
+    <button id="downloadAllBtn" class="primary-btn hidden" type="button" data-i18n="download_all">下载全部打码结果</button>
+    <button id="resetBtn" type="button" class="primary-btn" data-i18n="start_over">清空重来</button>
   </div>
 </section>
 
