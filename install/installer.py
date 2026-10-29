@@ -595,6 +595,7 @@ def _dress_titlebar(delay: float = 0.4) -> None:
                 dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(v), 4)
 
             setv(20, 0)             # 关闭系统深色标题栏（改用自定义颜色）
+            setv(34, 0x00311C13)    # 窗口边框 #131C31（避免浅色模式白边）
             setv(35, 0x00311C13)    # 标题栏底色 #131C31
             setv(36, 0x00F8EEE8)    # 标题文字 #E8EEF8
         except Exception:

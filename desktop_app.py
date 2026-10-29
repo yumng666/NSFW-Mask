@@ -278,6 +278,7 @@ def _dress_titlebar(delay: float = 0.4) -> None:
                 dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), attr, ctypes.byref(v), 4)
 
             setv(20, 0)             # 关闭系统深色标题栏（改用自定义颜色）
+            setv(34, 0x00311C13)    # 窗口边框 #131C31（否则浅色模式下露出白边）
             setv(35, 0x00311C13)    # 标题栏底色 #131C31
             setv(36, 0x00F8EEE8)    # 标题文字 #E8EEF8
         except Exception:
@@ -316,6 +317,19 @@ def main() -> None:
             if wait_ready(port):
                 # 带 cache-bust：绕过 WebView2 可能残留的旧页面缓存
                 window.load_url(f"http://127.0.0.1:{port}/?v={int(time.time())}")
+                # 页面已可操作：后台预热模型（640m 检测器 + ViT 分类器 + SAM，
+                # 共约 800MB）—— 用户还在选图时加载完，首次处理无需等待。
+                def _warmup() -> None:
+                    try:
+                        from backend.app import _load_engines_sync
+
+                        print("[NSFW Mask] 后台预热模型…", flush=True)
+                        _load_engines_sync()
+                        print("[NSFW Mask] 预热完成。", flush=True)
+                    except Exception as exc:
+                        print(f"[NSFW Mask] 预热失败（首次处理时将重试）: {exc}", flush=True)
+
+                threading.Thread(target=_warmup, daemon=True).start()
             else:
                 window.load_html(
                     '<body style="background:#0f172a;color:#f87171;display:flex;'
@@ -327,11 +341,15 @@ def main() -> None:
 
             print(traceback.format_exc())
 
-    threading.Thread(target=backend, daemon=True).start()
+    def _start_backend() -> None:
+        # GUI 就绪后再起后端线程：避免 .NET/clr（winforms）初始化与
+        # torch CUDA DLL 加载并发，偶发 "System.Windows.Forms 未找到" 崩溃
+        threading.Thread(target=backend, daemon=True).start()
+
     _set_window_icon(window)
 
     # private_mode=False + 固定 storage 目录：localStorage（API Key 等）跨启动保留
-    webview.start(private_mode=False, storage_path=storage_dir)
+    webview.start(private_mode=False, storage_path=storage_dir, func=_start_backend)
 
     # 窗口已关闭：立即终止进程（含所有后台线程），不再等待 uvicorn 优雅退出 ——
     # 否则单实例锁迟迟不释放，用户马上重开会被"已经在运行"挡住。
