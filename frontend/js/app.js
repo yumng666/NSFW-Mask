@@ -138,12 +138,11 @@
     syncStoredKey(currentKey());
   });
 
-  // 从服务端读本机密钥。该端点只响应 127.0.0.1 的请求，
-  // 且服务默认只监听本机回环 —— 一旦改成对外监听，请在反代上封掉它。
-  // auto=true 表示页面加载时的自动填入 —— 成功后隐藏密钥控件
-  // （桌面窗口/手机 App/本机浏览器都不需要用户看到这一排）；
-  // 失败则保持可见，作为浏览器远程访问时的手动入口。
-  async function fillKeyFromServer(auto) {
+  // 从服务端读本机密钥（本机专用，密钥对用户完全透明）。
+  // 页面加载时自动调用；若服务尚未就绪则静默重试（每 1.5s，最多 20 次），
+  // 成功后填入隐藏的输入框供接口鉴权使用。界面上不显示任何密钥控件，
+  // 也不提供手动入口 —— 本工具约定只在本机运行。
+  async function fillKeyFromServer(auto, attempt = 0) {
     try {
       const resp = await fetch('/api/local-key');
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -151,14 +150,16 @@
       if (!data.api_key) throw new Error('服务端没有密钥');
       apiKeyInput.value = data.api_key;
       syncStoredKey(currentKey());
-      if (auto) {
-        const box = document.querySelector('.keybox');
-        if (box) box.classList.add('hide-key');
-      } else {
-        setStatus(t('key_filled'), 'ok');
-      }
+      if (!auto) setStatus(t('key_filled'), 'ok');
     } catch (err) {
-      if (!auto) setStatus(t('key_fill_fail') + err.message, 'error');
+      if (auto) {
+        // 服务仍在校验/初始化中：静默重试，用户全程无感
+        if (attempt < 20) {
+          setTimeout(() => fillKeyFromServer(true, attempt + 1), 1500);
+        }
+      } else {
+        setStatus(t('key_fill_fail') + err.message, 'error');
+      }
     }
   }
 

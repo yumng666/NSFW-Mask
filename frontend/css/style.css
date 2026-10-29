@@ -58,9 +58,10 @@ p { margin: 0 0 8px; }
 .tagline { margin: 0; font-size: 12px; color: var(--text-dim); }
 
 .keybox { display: flex; align-items: center; gap: 8px; }
-/* 自动填入密钥成功后隐藏密钥相关控件（双端极简界面）。
-   浏览器远程访问等自动填入失败时保持可见，作为手动入口。 */
-.keybox.hide-key .key-only { display: none; }
+/* 本机专用：密钥对用户完全透明 —— API Key / 记住 / 一键填写 / 保存
+   永久隐藏（密钥仍由 JS 自动填入后台输入框，用于接口鉴权）。
+   不再提供远程访问的手动入口（如需远程部署，请自行改前端或直接调 API）。 */
+.keybox .key-only { display: none; }
 .keybox label { font-size: 12px; color: var(--text-dim); }
 
 .keybox input {
